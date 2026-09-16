@@ -1,0 +1,18 @@
+/.next
+/node_modules
+/.react-email/
+
+# Local storefront verification output (screenshots, logs, browser profiles, scripts).
+/.home-*
+/.motion-*
+/.real-data-*
+*.log
+
+sw.json
+.vercel
+.env*.local
+
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
