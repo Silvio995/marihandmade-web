@@ -17,3 +17,6 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
+
+// Tests are offline by default; each HTTP test must supply its own synthetic responses.
+vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('Unmocked network request forbidden in tests'))))

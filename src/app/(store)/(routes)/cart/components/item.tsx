@@ -24,7 +24,7 @@ type ItemProps = {
 }
 
 export const Item = ({ cartItem }: ItemProps) => {
-   const { authenticated } = useAuthenticated()
+   const { authenticated, loading: authLoading, error: authError } = useAuthenticated()
    const { cart, dispatchCart } = useCartContext()
    const [fetchingCart, setFetchingCart] = useState(false)
 
@@ -56,6 +56,7 @@ export const Item = ({ cartItem }: ItemProps) => {
    }
 
    async function onAddToCart() {
+      if (authLoading || authError) return
       try {
          setFetchingCart(true)
 
@@ -70,7 +71,7 @@ export const Item = ({ cartItem }: ItemProps) => {
                }),
                cache: 'no-store',
                headers: {
-                  'Content-Type': 'application/json-string',
+                  'Content-Type': 'application/json',
                },
             })
 
@@ -107,6 +108,7 @@ export const Item = ({ cartItem }: ItemProps) => {
    }
 
    async function onRemoveFromCart() {
+      if (authLoading || authError) return
       try {
          setFetchingCart(true)
 
@@ -121,7 +123,7 @@ export const Item = ({ cartItem }: ItemProps) => {
                }),
                cache: 'no-store',
                headers: {
-                  'Content-Type': 'application/json-string',
+                  'Content-Type': 'application/json',
                },
             })
 

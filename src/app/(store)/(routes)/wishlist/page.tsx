@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { ProductGrid, ProductSkeletonGrid } from '@/components/native/ProductGrid'
 
 export default function User() {
-   const { authenticated } = useAuthenticated()
+   const { authenticated, loading: authLoading, error: authError } = useAuthenticated()
    const { user, loading } = useUserContext()
 
    const [items, setItems] = useState<any[] | null>(null)
@@ -16,8 +16,8 @@ export default function User() {
    const router = useRouter()
 
    useEffect(() => {
-      if (!loading && !isVariableValid(user)) router.push('/')
-   }, [user, loading, router])
+      if (!loading && !authLoading && !authError && !isVariableValid(user)) router.push('/')
+   }, [user, loading, authLoading, authError, router])
 
    useEffect(() => {
       async function getWishlist() {
@@ -41,12 +41,14 @@ export default function User() {
       if (authenticated) getWishlist()
    }, [authenticated])
 
-   if (!authenticated && !loading) {
+   if (authError) return <p role="alert">Authentication is temporarily unavailable. Please try again.</p>
+
+   if (!authenticated && !loading && !authLoading) {
       router.push('/login')
       return null
    }
 
-   if (fetching || loading) {
+   if (fetching || loading || authLoading) {
       return (
          <div className="p-6">
             <h1 className="mb-4 text-2xl font-semibold">Wishlist</h1>

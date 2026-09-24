@@ -1,111 +1,130 @@
-import { getLocalCart, writeLocalCart } from '@/lib/cart'
-import { isVariableValid } from '@/lib/utils'
-import type { CartSummary } from '@/types/prisma'
-import { useUserContext } from '@/state/User'
-import React, { createContext, useContext, useEffect, useState } from 'react'
+"use client";
+import { getLocalCart, writeLocalCart } from "@/lib/cart";
+import type { CartSummary } from "@/types/prisma";
+import { useUserContext } from "@/state/User";
+import { useAuth } from "@/state/Auth";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 type CartContextType = {
-   cart: CartSummary | null
-   loading: boolean
-   refreshCart: () => Promise<void>
-   dispatchCart: (cart: CartSummary | null) => Promise<void>
-}
-
+  cart: CartSummary | null;
+  loading: boolean;
+  refreshCart: () => Promise<void>;
+  dispatchCart: (cart: CartSummary | null) => Promise<void>;
+};
 const CartContext = createContext<CartContextType>({
-   cart: null,
-   loading: true,
-   refreshCart: async () => {},
-   dispatchCart: async () => {},
-})
-
-export const useCartContext = () => {
-   return useContext(CartContext)
-}
-
-export const CartContextProvider = ({
-   children,
+  cart: null,
+  loading: true,
+  refreshCart: async () => {},
+  dispatchCart: async () => {},
+});
+export const useCartContext = () => useContext(CartContext);
+// Serialize guest merges in this tab; Web Locks also serialize across tabs when available.
+let mergeQueue: Promise<unknown> = Promise.resolve();
+export function CartContextProvider({
+  children,
 }: {
-   children: React.ReactNode
-}) => {
-   const { user } = useUserContext()
-
-   const [cart, setCart] = useState<CartSummary | null>(null)
-   const [loading, setLoading] = useState(true)
-
-   const dispatchCart = async (nextCart: CartSummary | null) => {
-      setCart(nextCart)
-      writeLocalCart(nextCart)
-   }
-
-   const refreshCart = async () => {
-      setLoading(true)
-
-      if (isVariableValid(user)) {
-         const nextCart = user?.cart ?? { items: [] }
-         setCart(nextCart)
-         writeLocalCart(nextCart)
-      } else {
-         const localCart = getLocalCart() ?? { items: [] }
-         setCart(localCart)
+  children: React.ReactNode;
+}) {
+  const { user, loading: profileLoading } = useUserContext();
+  const { status, session } = useAuth();
+  const identity = status === "authenticated" ? session!.user.id : status;
+  const latest = useRef(identity);
+  latest.current = identity;
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const [stored, setStored] = useState<{
+    identity: string;
+    cart: CartSummary | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const dispatchCart = async (cart: CartSummary | null) => {
+    if (
+      !alive.current ||
+      latest.current !== identity ||
+      !["authenticated", "unauthenticated"].includes(status)
+    )
+      return;
+    setStored({ identity, cart });
+    if (status === "unauthenticated") writeLocalCart(cart);
+  };
+  const refreshCart = async () => {
+    if (status === "unauthenticated")
+      setStored({ identity, cart: getLocalCart() ?? { items: [] } });
+    else if (status === "authenticated" && user)
+      setStored({ identity, cart: user.cart ?? { items: [] } });
+  };
+  useEffect(() => {
+    let cancelled = false;
+    const save = (cart: CartSummary | null) => {
+      if (!cancelled) {
+        setStored({ identity, cart });
+        setLoading(false);
       }
-
-      setLoading(false)
-   }
-
-   useEffect(() => {
-      const syncGuestCart = async () => {
-         const localCart = getLocalCart()
-         const serverCart = user?.cart ?? { items: [] }
-
-      if (!isVariableValid(user)) {
-         setCart(localCart ?? { items: [] })
-         setLoading(false)
-         return
+    };
+    if (status === "unauthenticated") {
+      save(getLocalCart() ?? { items: [] });
+      return;
+    }
+    if (status !== "authenticated" || !user || profileLoading) {
+      setLoading(status === "loading" || profileLoading);
+      return;
+    }
+    setLoading(true);
+    const sync = async () => {
+      if (cancelled) return;
+      const local = getLocalCart();
+      const items =
+        local?.items
+          ?.filter((item) => item.productId && item.count > 0)
+          .map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId ?? null,
+            count: item.count,
+            merge: true,
+          })) ?? [];
+      if (!items.length) {
+        save(user.cart ?? { items: [] });
+        return;
       }
-
-      const itemsToSync =
-         localCart?.items
-            ?.filter((item) => item?.productId && (item?.count ?? 0) > 0)
-            .map((item) => ({
-               productId: item.productId,
-               variantId: item.variantId ?? null,
-               count: item.count ?? 0,
-               merge: true,
-            })) ?? []
-
-      if (!itemsToSync.length) {
-         setCart(serverCart ?? { items: [] })
-         setLoading(false)
-         return
-      }
-
       try {
-         const response = await fetch('/api/cart', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items: itemsToSync }),
-         })
-
-         if (!response.ok) throw new Error('Failed to sync guest cart')
-
-         const nextCart: CartSummary = await response.json()
-         await dispatchCart(nextCart)
-         writeLocalCart(null) // clear guest cart after merge + persist
-      } catch (error) {
-         console.error('[SYNC_GUEST_CART]', error)
-         setCart(serverCart ?? { items: [] })
+        const response = await fetch("/api/cart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        if (!response.ok) throw new Error("Cart unavailable");
+        const cart: CartSummary = await response.json();
+        // Only remove the exact guest snapshot that was merged. Never persist an account cart locally.
+        if (JSON.stringify(getLocalCart()) === JSON.stringify(local))
+          writeLocalCart(null);
+        save(cart);
+      } catch {
+        save(user.cart ?? { items: [] });
       }
-      setLoading(false)
-   }
-
-   syncGuestCart()
-   }, [user])
-
-   return (
-      <CartContext.Provider
-         value={{ cart, loading, refreshCart, dispatchCart }}
-      >
-         {children}
-      </CartContext.Provider>
-   )
+    };
+    const run = async () => {
+      if (navigator.locks)
+        await navigator.locks.request("mh-guest-cart-merge", sync);
+      else await sync();
+    };
+    mergeQueue = mergeQueue.then(run, run);
+    return () => {
+      cancelled = true;
+    };
+  }, [identity, status, user, profileLoading]);
+  const cart =
+    stored?.identity === identity &&
+    (status === "authenticated" || status === "unauthenticated")
+      ? stored.cart
+      : null;
+  return (
+    <CartContext.Provider value={{ cart, loading, refreshCart, dispatchCart }}>
+      {children}
+    </CartContext.Provider>
+  );
 }
