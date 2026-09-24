@@ -1,5 +1,5 @@
 import config from '@/config/site'
-import { Button } from '@/components/ui/button'
+import LoginForm from './components/login-form'
 import { Metadata } from 'next'
 import Link from 'next/link'
 
@@ -72,43 +72,5 @@ export default function AuthenticationPage() {
             </div>
          </div>
       </div>
-   )
-}
-
-function LoginForm() {
-   return (
-      <form
-         className="grid gap-4"
-         action="/api/auth/signin"
-         method="post"
-      >
-         <input type="hidden" name="callbackUrl" value="/" />
-         <input type="hidden" name="provider" value="credentials" />
-         <div className="grid gap-1">
-            <label className="text-sm font-medium">Email</label>
-            <input
-               name="email"
-               type="email"
-               className="rounded-md border px-3 py-2 text-sm"
-               required
-            />
-         </div>
-         <div className="grid gap-1">
-            <label className="text-sm font-medium">Password</label>
-            <input
-               name="password"
-               type="password"
-               className="rounded-md border px-3 py-2 text-sm"
-               required
-            />
-         </div>
-         <Button type="submit">Login</Button>
-         <Link href="/signup" className="text-sm underline">
-            Create an account
-         </Link>
-         <Link href="/reset" className="text-sm underline">
-            Forgot password?
-         </Link>
-      </form>
    )
 }

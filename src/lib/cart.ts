@@ -14,7 +14,10 @@ export function getLocalCart(): CartSummary | null {
    try {
       const raw = window.localStorage.getItem('Cart')
       if (!raw) return null
-      return JSON.parse(raw) as CartSummary
+      const cart = JSON.parse(raw) as CartSummary | null
+      // Older Web versions wrote account carts here. Never re-merge those as guest data.
+      if (cart?.userId) { writeLocalCart(null); return null }
+      return cart
    } catch (error) {
       writeLocalCart({ items: [] })
       return { items: [] }

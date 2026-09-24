@@ -1,4 +1,5 @@
 "use client";
+import { UserNav } from "./user";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -112,6 +113,7 @@ export default function Header({
               )}
             </Link>
           ))}
+          <UserNav />
           <button
             ref={trigger}
             type="button"

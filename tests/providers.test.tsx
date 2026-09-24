@@ -1,4 +1,5 @@
-vi.mock('next-auth/react', () => ({ SessionProvider: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('@/state/Auth', () => ({ AuthProvider: ({ children }: { children: React.ReactNode }) => children, useAuth: () => ({ status: 'unauthenticated', session: null }) }))
 import { render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 

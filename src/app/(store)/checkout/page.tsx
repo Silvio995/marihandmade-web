@@ -32,8 +32,8 @@ type CheckoutResponse = {
 
 export default function CheckoutPage() {
   const router = useRouter()
-  const { authenticated } = useAuthenticated()
-  const { cart } = useCartContext()
+  const { authenticated, loading: authLoading, error: authError } = useAuthenticated()
+  const { cart, loading: cartLoading } = useCartContext()
 
   const [addresses, setAddresses] = useState<AddressType[]>([])
   const [addressId, setAddressId] = useState('')
@@ -116,6 +116,7 @@ export default function CheckoutPage() {
   }
 
   async function handleCheckout() {
+    if (authLoading || authError || cartLoading) return
     setLoading(true)
     setPaypalError(null)
 
@@ -292,8 +293,8 @@ export default function CheckoutPage() {
         </div>
       )}
 
-      <Button onClick={handleCheckout} disabled={loading || requestLines.length === 0}>
-        {loading ? 'Elaborazione...' : 'Completa ordine come ospite'}
+      <Button onClick={handleCheckout} disabled={loading || authLoading || authError || cartLoading || requestLines.length === 0}>
+        {loading || authLoading || cartLoading ? 'Elaborazione...' : authenticated ? 'Completa ordine' : 'Completa ordine come ospite'}
       </Button>
 
       {paypalError && createdOrderId && (

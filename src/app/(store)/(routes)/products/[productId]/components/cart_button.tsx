@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { useAuthenticated } from '@/hooks/useAuthentication'
 import { getCountInCart, getLocalCart } from '@/lib/cart'
-import { CartContextProvider, useCartContext } from '@/state/Cart'
+import { useCartContext } from '@/state/Cart'
 import { MinusIcon, PlusIcon, ShoppingBasketIcon, X } from 'lucide-react'
 import { Spinner } from '@/components/native/icons'
 import type { CartSummary } from '@/types/prisma'
@@ -22,14 +22,14 @@ export default function CartButton({
    variantPurchasable?: boolean
 }) {
    return (
-      <CartContextProvider>
+      <>
          <ButtonComponent
             product={product}
             selectedVariantId={selectedVariantId}
             disabled={disabled}
             variantPurchasable={variantPurchasable}
          />
-      </CartContextProvider>
+      </>
    )
 }
 
@@ -44,7 +44,7 @@ function ButtonComponent({
    disabled?: boolean
    variantPurchasable?: boolean
 }) {
-   const { authenticated } = useAuthenticated()
+   const { authenticated, loading: authLoading, error: authError } = useAuthenticated()
    const { cart, dispatchCart } = useCartContext()
    const [fetchingCart, setFetchingCart] = useState(false)
    const hasVariantStructure =
@@ -60,7 +60,7 @@ function ButtonComponent({
    const targetVariantId = selectedVariantId ?? null
    const requiresValidVariant = hasVariantStructure
    const effectiveDisabled =
-      disabled ||
+      authLoading || authError || disabled ||
       (requiresValidVariant && !targetVariantId) ||
       (requiresValidVariant && !variantPurchasable)
 
