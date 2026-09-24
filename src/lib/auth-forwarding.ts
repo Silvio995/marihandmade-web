@@ -8,15 +8,26 @@ function failure(status: number, code: string, message: string) {
     { status, headers: { "Cache-Control": "no-store" } },
   );
 }
-function trustedOrigin(origin: string | null) {
+function trustedOrigin(req: Request, origin: string | null) {
   if (!origin || origin === "null") return false;
-  const configured = process.env.NEXT_PUBLIC_APP_URL;
-  // Production must explicitly establish the public storefront origin.
-  const expected =
-    configured ||
-    (process.env.NODE_ENV !== "production" ? "http://localhost:7777" : "");
   try {
-    return origin === new URL(expected).origin;
+    const production = process.env.NODE_ENV === "production";
+    // Local request URLs include the actual listening port. Public link settings
+    // must not override them (e.g. a copied production placeholder in .env.local).
+    // Behind a production proxy, req.url may be internal: use the explicitly
+    // configured public origin, never client-supplied Host/forwarded headers.
+    const expected = new URL(
+      production ? process.env.NEXT_PUBLIC_APP_URL || "" : req.url,
+    );
+    if (
+      expected.username ||
+      expected.password ||
+      (production
+        ? expected.protocol !== "https:"
+        : !["http:", "https:"].includes(expected.protocol))
+    )
+      return false;
+    return origin === expected.origin;
   } catch {
     return false;
   }
@@ -61,7 +72,7 @@ function retireLegacyCookies(headers: Headers, cookie: string | null) {
 export async function forwardAuth(req: Request, operation: AuthOperation) {
   try {
     const origin = req.headers.get("origin");
-    if (operation !== "me" && !trustedOrigin(origin))
+    if (operation !== "me" && !trustedOrigin(req, origin))
       return failure(403, "FORBIDDEN_ORIGIN", "Untrusted request origin");
     const body = operation === "me" ? undefined : await boundedBody(req);
     if (body === null)

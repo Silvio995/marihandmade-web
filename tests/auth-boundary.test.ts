@@ -212,6 +212,141 @@ describe("same-origin auth forwarding", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+describe("request-origin regression", () => {
+  it.each([
+    ["signup", signup],
+    ["login", login],
+    ["logout", logout],
+  ] as const)(
+    "%s forwards localhost:7777 despite a stale public URL",
+    async (operation, handler) => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://your-production-domain.com");
+      vi.stubEnv("MARIHANDMADE_API_URL", "http://localhost:3001");
+      response(authFailure("BAD_REQUEST"), 400);
+      const req = new Request(`http://localhost:7777/api/auth/${operation}`, {
+        method: "POST",
+        headers: {
+          Origin: origin,
+          Host: "localhost:7777",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+      const result = await handler(req);
+      expect(result.status).toBe(400);
+      expect(await result.json()).toEqual(authFailure("BAD_REQUEST"));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url.origin).toBe("http://localhost:3001");
+      expect(init.headers.get("Origin")).toBe(origin);
+      expect(init.body).toBe("{}");
+    },
+  );
+  it.each([
+    "http://localhost",
+    "http://localhost:3001",
+    "https://localhost:7777",
+    "http://attacker.test:7777",
+  ])(
+    "rejects mismatched Origin %s despite forged host headers",
+    async (candidate) => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_APP_URL", candidate);
+      const req = request("POST", "{}", {
+        Origin: candidate,
+        Host: new URL(candidate).host,
+        "X-Forwarded-Host": new URL(candidate).host,
+        "X-Forwarded-Proto": new URL(candidate).protocol.slice(0, -1),
+      });
+      expect((await signup(req)).status).toBe(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+  it("uses the actual development port instead of a hardcoded localhost exception", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    response(authFailure("BAD_REQUEST"), 400);
+    const req = new Request("http://localhost:8888/api/auth/signup", {
+      method: "POST",
+      headers: { Origin: "http://localhost:8888" },
+      body: "{}",
+    });
+    expect((await signup(req)).status).toBe(400);
+    expect(fetchMock.mock.calls[0][1].headers.get("Origin")).toBe(
+      "http://localhost:8888",
+    );
+  });
+  it.each([
+    "https://store.example.test/api/auth/signup",
+    "http://internal-next:3000/api/auth/signup",
+  ])("preserves the configured production HTTPS origin for %s", async (url) => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://store.example.test");
+    response(authFailure("BAD_REQUEST"), 400);
+    const req = new Request(url, {
+      method: "POST",
+      headers: {
+        Origin: "https://store.example.test",
+        Host: "internal-next:3000",
+        "X-Forwarded-Host": "attacker.test",
+        "X-Forwarded-Proto": "http",
+      },
+      body: "{}",
+    });
+    expect((await signup(req)).status).toBe(400);
+    expect(fetchMock.mock.calls[0][1].headers.get("Origin")).toBe(
+      "https://store.example.test",
+    );
+    expect(
+      fetchMock.mock.calls[0][1].headers.get("X-Forwarded-Host"),
+    ).toBeNull();
+  });
+  it.each([
+    "https://attacker.test",
+    "http://store.example.test",
+    "http://localhost:7777",
+  ])(
+    "production rejects %s even when request URL and forged headers match",
+    async (candidate) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://store.example.test");
+      const req = new Request(`${candidate}/api/auth/signup`, {
+        method: "POST",
+        headers: {
+          Origin: candidate,
+          Host: new URL(candidate).host,
+          "X-Forwarded-Host": new URL(candidate).host,
+          "X-Forwarded-Proto": new URL(candidate).protocol.slice(0, -1),
+        },
+        body: "{}",
+      });
+      expect((await signup(req)).status).toBe(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["", "invalid", "http://store.example.test"])(
+    "production fails closed for invalid public origin configuration %s",
+    async (configured) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PUBLIC_APP_URL", configured);
+      expect((await signup(request())).status).toBe(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+  it("GET /me remains independent of mutation Origin validation", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+    response(authFailure("UNAUTHENTICATED"), 401);
+    const req = request("GET");
+    req.headers.delete("origin");
+    const result = await me(req);
+    expect(result.status).toBe(401);
+    expect(await result.json()).toEqual(authFailure("UNAUTHENTICATED"));
+    expect(fetchMock.mock.calls[0][1].headers.get("Cookie")).toContain(
+      "mh_session=opaque",
+    );
+  });
+});
 describe("SSR authority", () => {
   it("uses only backend identity and explicitly forwards incoming cookies without caching", async () => {
     response();

@@ -27,7 +27,7 @@ The contract was inspected read-only in the sibling backend's `docs/auth-core.md
 
 ## Origin and cookie policy
 
-Next validates mutation Origin against the origin of `NEXT_PUBLIC_APP_URL`, then forwards it unchanged. Development without that variable defaults to `http://localhost:7777`; production has no fallback. Missing Origin, literal `null`, foreign origins, and forged forwarding headers do not receive a manufactured trusted Origin. Fastify independently enforces its exact allowlist. Browser calls remain same-origin; no direct browser-to-Fastify CORS configuration is needed.
+Next validates mutation Origin against the actual request URL origin in development/test, including its explicit port, then forwards it unchanged. `NEXT_PUBLIC_APP_URL` is not a development auth allowlist: a copied public-link placeholder must not override `http://localhost:7777`. Production requires an explicit HTTPS `NEXT_PUBLIC_APP_URL` and uses its canonical origin, including behind a reverse proxy where the Next request URL may be internal. Production has no request-URL or localhost fallback. Neither policy reconstructs an origin from Host or X-Forwarded-* headers. Missing Origin, literal `null`, foreign origins, and forged forwarding headers do not receive a manufactured trusted Origin. Fastify independently enforces its exact allowlist. Browser calls remain same-origin; no direct browser-to-Fastify CORS configuration is needed.
 
 Backend cookies are relayed without changing Domain, Secure, HttpOnly, Path, SameSite, expiry, or name:
 
@@ -89,7 +89,7 @@ No real values were added or exposed. `.env.example` documents:
 | Variable | Owner / use |
 | --- | --- |
 | `MARIHANDMADE_API_URL` | Web server-only backend base, e.g. `http://localhost:3001`, no `/api` suffix |
-| `NEXT_PUBLIC_APP_URL` | Actual storefront URL; Next auth mutation Origin policy and existing email links |
+| `NEXT_PUBLIC_APP_URL` | Actual storefront URL; production Next auth mutation Origin policy and existing email links |
 | `NEXT_PUBLIC_URL` | Existing public site/sitemap URL; keep consistent with storefront deployment |
 | `AUTH_TRUSTED_ORIGINS` | **Backend only**, comma-separated exact storefront origins, no paths/trailing slash/wildcards |
 | `GUEST_ORDER_TOKEN_SECRET` | Independent Web guest-order secret, required in every environment; preserve the current production value |
