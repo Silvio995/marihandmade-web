@@ -3,8 +3,9 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({
   cookies: () => ({ toString: () => "mh_session=opaque" }),
 }));
-const { backend, db } = vi.hoisted(() => ({
+const { backend, privateBackend, db } = vi.hoisted(() => ({
   backend: vi.fn(),
+  privateBackend: vi.fn(),
   db: {
     user: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
     address: { findUnique: vi.fn(), create: vi.fn() },
@@ -14,7 +15,11 @@ const { backend, db } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/api/auth", () => ({
   requestBackendAuth: backend,
+  getSetCookies: () => [],
   AuthUnavailableError: class extends Error {},
+}));
+vi.mock("@/lib/api/profile-addresses", () => ({
+  requestBackendPrivate: privateBackend,
 }));
 vi.mock("@/lib/prisma", () => ({ default: db }));
 vi.mock("next/navigation", () => ({
@@ -45,7 +50,12 @@ import { identity, authFailure } from "./auth.fixture";
 const req = () =>
   new Request("http://store.test?userId=user-b", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-User-Id": "user-b" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-Id": "user-b",
+      Origin: "http://store.test",
+      Cookie: "mh_session=opaque",
+    },
     body: JSON.stringify({
       userId: "user-b",
       name: "Updated",
@@ -56,6 +66,9 @@ const req = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   backend.mockResolvedValue({ status: 200, body: identity });
+  privateBackend.mockImplementation(async () =>
+    Response.json({ name: "A", phone: null, email: null, birthday: null }),
+  );
   db.user.findUniqueOrThrow.mockResolvedValue({});
   db.user.update.mockResolvedValue({ wishlist: [] });
   db.cart.findUniqueOrThrow.mockResolvedValue({ items: [] });
@@ -67,17 +80,30 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe("owner-scoped transitional Prisma", () => {
-  it("profile read/update ignore attacker identity", async () => {
+  it("profile read/update forward session cookie and leave ownership to backend", async () => {
     expect((await profile(req())).status).toBe(200);
-    expect(db.user.findUniqueOrThrow.mock.calls[0][0].where).toEqual({
-      id: "user-a",
-    });
     expect((await profileUpdate(req())).status).toBe(200);
-    expect(db.user.update.mock.calls[0][0].where).toEqual({ id: "user-a" });
+    expect(privateBackend.mock.calls[0]).toEqual([
+      "/api/profile",
+      expect.objectContaining({ cookie: "mh_session=opaque", method: "GET" }),
+    ]);
+    expect(privateBackend.mock.calls[1]).toEqual([
+      "/api/profile",
+      expect.objectContaining({ cookie: "mh_session=opaque", method: "PATCH" }),
+    ]);
+    expect(db.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(db.user.update).not.toHaveBeenCalled();
   });
-  it("address creation assigns backend identity", async () => {
-    await addressCreate(req());
-    expect(db.address.create.mock.calls[0][0].data.userId).toBe("user-a");
+  it("address creation defers identity validation to backend without a Web write", async () => {
+    privateBackend.mockResolvedValue(
+      Response.json(authFailure("BAD_REQUEST"), { status: 400 }),
+    );
+    expect((await addressCreate(req())).status).toBe(400);
+    expect(privateBackend).toHaveBeenCalledWith(
+      "/api/addresses",
+      expect.objectContaining({ cookie: "mh_session=opaque" }),
+    );
+    expect(db.address.create).not.toHaveBeenCalled();
   });
   it("wishlist mutations assign backend identity", async () => {
     await wishlist(req());
@@ -104,21 +130,29 @@ describe("owner-scoped transitional Prisma", () => {
     },
   );
   it("user A cannot SSR-read user B address", async () => {
-    db.address.findUnique.mockImplementation(({ where }) =>
-      where.userId === "user-b" ? { id: "address-b", userId: "user-b" } : null,
+    privateBackend.mockResolvedValue(
+      Response.json(authFailure("NOT_FOUND"), { status: 404 }),
     );
     await expect(
       AddressPage({ params: { addressId: "address-b" } }),
     ).rejects.toThrow("not-found");
-    expect(db.address.findUnique).toHaveBeenCalledWith({
-      where: { id: "address-b", userId: "user-a" },
+    expect(privateBackend).toHaveBeenCalledWith("/api/addresses/address-b", {
+      cookie: "mh_session=opaque",
     });
+    expect(db.address.findUnique).not.toHaveBeenCalled();
   });
   it("own address renders, new address remains usable", async () => {
-    db.address.findUnique.mockResolvedValue({
-      id: "address-a",
-      userId: "user-a",
-    });
+    privateBackend.mockResolvedValue(
+      Response.json({
+        id: "address-a",
+        country: "IRI",
+        address: "Street",
+        city: "City",
+        phone: "012",
+        postalCode: "001",
+        createdAt: "2026-09-29T00:00:00.000Z",
+      }),
+    );
     expect(
       await AddressPage({ params: { addressId: "address-a" } }),
     ).toBeTruthy();
@@ -137,7 +171,8 @@ describe("owner-scoped transitional Prisma", () => {
   });
   it("backend outage prevents protected data access rather than becoming anonymous", async () => {
     backend.mockRejectedValue(new Error("offline"));
-    expect((await profile(req())).status).toBe(500);
+    privateBackend.mockRejectedValue(new Error("offline"));
+    expect((await profile(req())).status).toBe(503);
     expect(db.user.findUniqueOrThrow).not.toHaveBeenCalled();
     await expect(
       AddressPage({ params: { addressId: "address-a" } }),

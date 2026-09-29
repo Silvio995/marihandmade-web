@@ -1,50 +1,64 @@
-'use client'
+"use client";
 
-import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
-import { useAuthenticated } from '@/hooks/useAuthentication'
-import { useCartContext } from '@/state/Cart'
-import type { AddressType } from '@/types/prisma'
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { useAuthenticated } from "@/hooks/useAuthentication";
+import { useCartContext } from "@/state/Cart";
+import type { Address } from "@/lib/profile-addresses-contracts";
+import { profileAddressesMessage } from "@/lib/profile-addresses-contracts";
+import { profileAddresses } from "@/lib/client-profile-addresses";
+import { useAuth } from "@/state/Auth";
 
 type CheckoutLine = {
-  productId: string
-  variantId: string | null
-  quantity: number
-  unitPrice: number
-  subtotal: number
-}
+  productId: string;
+  variantId: string | null;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+};
 
 type CheckoutLineInput = {
-  productId: string
-  variantId?: string | null
-  quantity: number
-}
+  productId: string;
+  variantId?: string | null;
+  quantity: number;
+};
 
 type CheckoutResponse = {
-  items?: CheckoutLine[]
-  lines?: CheckoutLine[]
-  hasDroppedLines?: boolean
-  isCheckoutReady?: boolean
-  requiresCartReview?: boolean
-  itemCount?: number
-}
+  items?: CheckoutLine[];
+  lines?: CheckoutLine[];
+  hasDroppedLines?: boolean;
+  isCheckoutReady?: boolean;
+  requiresCartReview?: boolean;
+  itemCount?: number;
+};
 
 export default function CheckoutPage() {
-  const router = useRouter()
-  const { authenticated, loading: authLoading, error: authError } = useAuthenticated()
-  const { cart, loading: cartLoading } = useCartContext()
+  const router = useRouter();
+  const {
+    authenticated,
+    loading: authLoading,
+    error: authError,
+  } = useAuthenticated();
+  const { cart, loading: cartLoading } = useCartContext();
 
-  const [addresses, setAddresses] = useState<AddressType[]>([])
-  const [addressId, setAddressId] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null)
-  const [guestOrderAccessToken, setGuestOrderAccessToken] = useState<string | undefined>()
-  const [paypalError, setPaypalError] = useState<string | null>(null)
-  const [guestEmail, setGuestEmail] = useState('')
-  const [guestFirstName, setGuestFirstName] = useState('')
-  const [guestLastName, setGuestLastName] = useState('')
-  const [guestPhone, setGuestPhone] = useState('')
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const { session } = useAuth();
+  const accountId = session?.user.id;
+  const [addressError, setAddressError] = useState<string | null>(null);
+  const [addressesLoading, setAddressesLoading] = useState(false);
+  const [addressRetry, setAddressRetry] = useState(0);
+  const [addressId, setAddressId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
+  const [guestOrderAccessToken, setGuestOrderAccessToken] = useState<
+    string | undefined
+  >();
+  const [paypalError, setPaypalError] = useState<string | null>(null);
+  const [guestEmail, setGuestEmail] = useState("");
+  const [guestFirstName, setGuestFirstName] = useState("");
+  const [guestLastName, setGuestLastName] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
 
   const requestLines = useMemo<CheckoutLineInput[]>(
     () =>
@@ -55,108 +69,112 @@ export default function CheckoutPage() {
           variantId: item.variantId ?? null,
           quantity: item.count ?? 0,
         })),
-    [cart]
-  )
+    [cart],
+  );
 
   useEffect(() => {
+    let cancelled = false;
+    setAddresses([]);
+    setAddressId("");
+    setAddressError(null);
     if (!authenticated) {
-      setAddresses([])
-      setAddressId('')
-      return
+      setAddressesLoading(false);
+      return;
     }
-
-    const fetchAddresses = async () => {
-      try {
-        const res = await fetch('/api/addresses', { credentials: 'include' })
-        if (!res.ok) {
-          setAddresses([])
-          setAddressId('')
-          return
-        }
-
-        const data: AddressType[] = await res.json()
-        setAddresses(data)
-        if (data.length > 0) {
-          setAddressId(data[0]?.id ?? '')
-        }
-      } catch {
-        setAddresses([])
-        setAddressId('')
-      }
-    }
-
-    fetchAddresses()
-  }, [authenticated])
+    setAddressesLoading(true);
+    void profileAddresses
+      .addresses()
+      .then((data) => {
+        if (cancelled) return;
+        setAddresses(data);
+        setAddressId(data[0]?.id ?? "");
+      })
+      .catch((error) => {
+        if (!cancelled) setAddressError(profileAddressesMessage(error));
+      })
+      .finally(() => {
+        if (!cancelled) setAddressesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated, accountId, addressRetry]);
 
   async function startPayPalPayment(
     orderId: string,
-    guestOrderAccessToken?: string
+    guestOrderAccessToken?: string,
   ) {
     const payRes = await fetch(`/api/orders/${orderId}/pay/paypal`, {
-      method: 'POST',
-      credentials: 'include',
+      method: "POST",
+      credentials: "include",
       headers: guestOrderAccessToken
         ? {
-            'x-guest-order-access': guestOrderAccessToken,
+            "x-guest-order-access": guestOrderAccessToken,
           }
         : undefined,
-    })
+    });
 
     if (!payRes.ok) {
-      const text = await payRes.text().catch(() => '')
-      throw new Error(text || 'Impossibile avviare PayPal')
+      const text = await payRes.text().catch(() => "");
+      throw new Error(text || "Impossibile avviare PayPal");
     }
 
-    const payData: { providerApproveUrl?: string | null } = await payRes.json()
+    const payData: { providerApproveUrl?: string | null } = await payRes.json();
     if (!payData.providerApproveUrl) {
-      throw new Error('PayPal approval URL mancante')
+      throw new Error("PayPal approval URL mancante");
     }
 
-    window.location.href = payData.providerApproveUrl
+    window.location.href = payData.providerApproveUrl;
   }
 
   async function handleCheckout() {
-    if (authLoading || authError || cartLoading) return
-    setLoading(true)
-    setPaypalError(null)
+    if (
+      authLoading ||
+      authError ||
+      cartLoading ||
+      (authenticated && (addressesLoading || addressError))
+    )
+      return;
+    setLoading(true);
+    setPaypalError(null);
 
     if (!requestLines.length) {
-      setLoading(false)
-      return alert('Cart is empty or invalid for checkout')
+      setLoading(false);
+      return alert("Cart is empty or invalid for checkout");
     }
 
     if (!authenticated && (!guestEmail || !guestFirstName || !guestLastName)) {
-      setLoading(false)
-      return alert('Inserisci nome, cognome ed email per checkout ospite')
+      setLoading(false);
+      return alert("Inserisci nome, cognome ed email per checkout ospite");
     }
 
-    let checkoutLines: CheckoutLine[] = []
+    let checkoutLines: CheckoutLine[] = [];
 
     try {
-      const checkoutRes = await fetch('/api/checkout', {
-        method: 'POST',
+      const checkoutRes = await fetch("/api/checkout", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        credentials: 'include',
+        credentials: "include",
         body: JSON.stringify({
           lines: requestLines,
         }),
-      })
+      });
 
       if (!checkoutRes.ok) {
-        throw new Error('Checkout prep failed')
+        throw new Error("Checkout prep failed");
       }
 
-      const checkoutData: CheckoutResponse = await checkoutRes.json()
-      const lines = checkoutData.lines ?? checkoutData.items ?? []
-      checkoutLines = lines
+      const checkoutData: CheckoutResponse = await checkoutRes.json();
+      const lines = checkoutData.lines ?? checkoutData.items ?? [];
+      checkoutLines = lines;
       const totalQuantity =
         checkoutData.itemCount ??
-        lines.reduce((sum, line) => sum + (line.quantity ?? 0), 0)
+        lines.reduce((sum, line) => sum + (line.quantity ?? 0), 0);
 
       if (!lines.length || totalQuantity < 1) {
-        throw new Error('Cart is empty or invalid for checkout')
+        throw new Error("Cart is empty or invalid for checkout");
       }
 
       if (
@@ -164,19 +182,21 @@ export default function CheckoutPage() {
         checkoutData.requiresCartReview ||
         checkoutData.isCheckoutReady === false
       ) {
-        throw new Error('Cart needs review before checkout')
+        throw new Error("Cart needs review before checkout");
       }
     } catch (error) {
-      setLoading(false)
-      return alert(error instanceof Error ? error.message : 'Checkout prep failed')
+      setLoading(false);
+      return alert(
+        error instanceof Error ? error.message : "Checkout prep failed",
+      );
     }
 
-    const orderRes = await fetch('/api/orders', {
-      method: 'POST',
+    const orderRes = await fetch("/api/orders", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
-      credentials: 'include',
+      credentials: "include",
       body: JSON.stringify({
         addressId: authenticated ? addressId : undefined,
         checkoutLines,
@@ -189,24 +209,27 @@ export default function CheckoutPage() {
               phone: guestPhone || undefined,
             },
       }),
-    })
+    });
 
-    setLoading(false)
+    setLoading(false);
 
     if (!orderRes.ok) {
-      return alert('Checkout failed')
+      return alert("Checkout failed");
     }
 
-    const order: { id: string; guestOrderAccessToken?: string } = await orderRes.json()
-    setCreatedOrderId(order.id)
-    setGuestOrderAccessToken(order.guestOrderAccessToken)
+    const order: { id: string; guestOrderAccessToken?: string } =
+      await orderRes.json();
+    setCreatedOrderId(order.id);
+    setGuestOrderAccessToken(order.guestOrderAccessToken);
 
     try {
-      await startPayPalPayment(order.id, order.guestOrderAccessToken)
-      return
+      await startPayPalPayment(order.id, order.guestOrderAccessToken);
+      return;
     } catch {
-      setPaypalError('Non siamo riusciti ad avviare PayPal. Puoi riprovare o vedere la conferma ordine.')
-      return
+      setPaypalError(
+        "Non siamo riusciti ad avviare PayPal. Puoi riprovare o vedere la conferma ordine.",
+      );
+      return;
     }
   }
 
@@ -218,10 +241,22 @@ export default function CheckoutPage() {
 
       {authenticated ? (
         <div className="space-y-2">
-          <label htmlFor="addressId" className="text-sm font-medium text-neutral-700">
+          <label
+            htmlFor="addressId"
+            className="text-sm font-medium text-neutral-700"
+          >
             Indirizzo di spedizione (opzionale)
           </label>
-          {addresses.length > 0 ? (
+          {addressError ? (
+            <p role="alert">
+              {addressError}{" "}
+              <button onClick={() => setAddressRetry((value) => value + 1)}>
+                Try again
+              </button>
+            </p>
+          ) : addressesLoading ? (
+            <p>Loading addresses...</p>
+          ) : addresses.length > 0 ? (
             <select
               id="addressId"
               value={addressId}
@@ -243,7 +278,10 @@ export default function CheckoutPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label htmlFor="guestFirstName" className="text-sm font-medium text-neutral-700">
+            <label
+              htmlFor="guestFirstName"
+              className="text-sm font-medium text-neutral-700"
+            >
               Nome
             </label>
             <input
@@ -255,7 +293,10 @@ export default function CheckoutPage() {
             />
           </div>
           <div className="space-y-2">
-            <label htmlFor="guestLastName" className="text-sm font-medium text-neutral-700">
+            <label
+              htmlFor="guestLastName"
+              className="text-sm font-medium text-neutral-700"
+            >
               Cognome
             </label>
             <input
@@ -267,7 +308,10 @@ export default function CheckoutPage() {
             />
           </div>
           <div className="space-y-2 md:col-span-2">
-            <label htmlFor="guestEmail" className="text-sm font-medium text-neutral-700">
+            <label
+              htmlFor="guestEmail"
+              className="text-sm font-medium text-neutral-700"
+            >
               Email
             </label>
             <input
@@ -280,7 +324,10 @@ export default function CheckoutPage() {
             />
           </div>
           <div className="space-y-2 md:col-span-2">
-            <label htmlFor="guestPhone" className="text-sm font-medium text-neutral-700">
+            <label
+              htmlFor="guestPhone"
+              className="text-sm font-medium text-neutral-700"
+            >
               Telefono (opzionale)
             </label>
             <input
@@ -293,8 +340,22 @@ export default function CheckoutPage() {
         </div>
       )}
 
-      <Button onClick={handleCheckout} disabled={loading || authLoading || authError || cartLoading || requestLines.length === 0}>
-        {loading || authLoading || cartLoading ? 'Elaborazione...' : authenticated ? 'Completa ordine' : 'Completa ordine come ospite'}
+      <Button
+        onClick={handleCheckout}
+        disabled={
+          loading ||
+          authLoading ||
+          authError ||
+          cartLoading ||
+          (authenticated && (addressesLoading || !!addressError)) ||
+          requestLines.length === 0
+        }
+      >
+        {loading || authLoading || cartLoading
+          ? "Elaborazione..."
+          : authenticated
+            ? "Completa ordine"
+            : "Completa ordine come ospite"}
       </Button>
 
       {paypalError && createdOrderId && (
@@ -303,14 +364,18 @@ export default function CheckoutPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="default"
-              onClick={() => startPayPalPayment(createdOrderId, guestOrderAccessToken)}
+              onClick={() =>
+                startPayPalPayment(createdOrderId, guestOrderAccessToken)
+              }
               disabled={loading}
             >
               Riprova PayPal
             </Button>
             <Button
               variant="outline"
-              onClick={() => router.push(`/order-confirmation?orderId=${createdOrderId}`)}
+              onClick={() =>
+                router.push(`/order-confirmation?orderId=${createdOrderId}`)
+              }
               disabled={loading}
             >
               Vedi conferma ordine
@@ -319,5 +384,5 @@ export default function CheckoutPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

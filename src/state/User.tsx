@@ -1,6 +1,10 @@
 "use client";
 import { useAuth } from "@/state/Auth";
-import type { UserWithIncludes } from "@/types/prisma";
+import { profileAddresses } from "@/lib/client-profile-addresses";
+import {
+  profileAddressesMessage,
+  type ProfileSummary,
+} from "@/lib/profile-addresses-contracts";
 import {
   createContext,
   useContext,
@@ -11,13 +15,15 @@ import {
 } from "react";
 
 type UserContextValue = {
-  user: UserWithIncludes | null;
+  user: ProfileSummary | null;
   loading: boolean;
+  error: string | null;
   refreshUser: () => Promise<void>;
 };
 const UserContext = createContext<UserContextValue>({
   user: null,
   loading: true,
+  error: null,
   refreshUser: async () => {},
 });
 export const useUserContext = () => useContext(UserContext);
@@ -30,25 +36,28 @@ export function UserContextProvider({
   const userId = session?.user.id;
   const [profile, setProfile] = useState<{
     id: string;
-    user: UserWithIncludes;
+    user: ProfileSummary;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const version = useRef(0);
   const refreshUser = useCallback(async () => {
     const current = ++version.current;
     if (status !== "authenticated" || !userId) {
       setProfile(null);
+      setError(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const response = await fetch("/api/profile", { cache: "no-store" });
-      if (!response.ok) throw new Error("Profile unavailable");
-      const user: UserWithIncludes = await response.json();
-      if (current === version.current) setProfile({ id: userId, user });
-    } catch {
-      if (current === version.current) setProfile(null);
+      const user = await profileAddresses.summary();
+      if (current === version.current) {
+        setProfile({ id: userId, user });
+        setError(null);
+      }
+    } catch (error) {
+      if (current === version.current) setError(profileAddressesMessage(error));
     } finally {
       if (current === version.current) setLoading(false);
     }
@@ -66,8 +75,18 @@ export function UserContextProvider({
       : null;
   return (
     <UserContext.Provider
-      value={{ user, loading: loading || status === "loading", refreshUser }}
+      value={{
+        user,
+        loading: loading || status === "loading",
+        error,
+        refreshUser,
+      }}
     >
+      {error && status === "authenticated" && (
+        <p role="alert">
+          {error} <button onClick={() => void refreshUser()}>Try again</button>
+        </p>
+      )}
       {children}
     </UserContext.Provider>
   );

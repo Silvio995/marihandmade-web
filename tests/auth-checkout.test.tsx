@@ -25,6 +25,7 @@ beforeEach(() => {
   auth.loading = false;
   auth.error = false;
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("alert", vi.fn());
   fetchMock.mockReset();
   localStorage.clear();
 });
@@ -104,3 +105,66 @@ it("retires old locally persisted account cart without discarding a real guest c
   );
   expect(getLocalCart()?.items[0].productId).toBe("guest");
 });
+
+const savedAddress = {
+  id: "newest-existing-id",
+  country: "IRI",
+  address: "Street",
+  city: "City",
+  phone: "0",
+  postalCode: "001",
+  createdAt: "2026-09-29T00:00:00.000Z",
+};
+it("selects the first/newest address and passes the unchanged ID to existing orders", async () => {
+  auth.authenticated = true;
+  fetchMock
+    .mockResolvedValueOnce(
+      Response.json([
+        savedAddress,
+        { ...savedAddress, id: "older", address: "Older street" },
+      ]),
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        lines: [
+          {
+            productId: "p",
+            variantId: null,
+            quantity: 1,
+            unitPrice: 12,
+            subtotal: 12,
+          },
+        ],
+        isCheckoutReady: true,
+      }),
+    )
+    .mockResolvedValueOnce(new Response("Order unavailable", { status: 503 }));
+  render(<Checkout />);
+  await waitFor(() =>
+    expect(screen.getByRole("combobox")).toHaveValue("newest-existing-id"),
+  );
+  expect(fetchMock.mock.calls[0][1].cache).toBe("no-store");
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  expect(fetchMock.mock.calls[2][0]).toBe("/api/orders");
+  expect(JSON.parse(fetchMock.mock.calls[2][1].body).addressId).toBe(
+    "newest-existing-id",
+  );
+});
+it.each([401, 503])(
+  "address failure %s is visible and blocks checkout without pretending there are no saved addresses",
+  async (status) => {
+    auth.authenticated = true;
+    fetchMock.mockResolvedValue(new Response("private detail", { status }));
+    render(<Checkout />);
+    expect(await screen.findByRole("alert")).not.toHaveTextContent(
+      "private detail",
+    );
+    expect(
+      screen.queryByText(/Nessun indirizzo salvato/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Completa ordine" }),
+    ).toBeDisabled();
+  },
+);

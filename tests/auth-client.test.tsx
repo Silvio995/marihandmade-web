@@ -29,12 +29,13 @@ const reply = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 function Probe() {
   const auth = useAuth();
-  const { user } = useUserContext();
+  const { user, refreshUser } = useUserContext();
   const { cart, dispatchCart } = useCartContext();
   return (
     <>
       <div data-testid="status">{auth.status}</div>
       <div data-testid="identity">{auth.session?.user.id}</div>
+      <button onClick={() => void refreshUser()}>Refresh profile</button>
       <div data-testid="profile">{user?.name}</div>
       <div data-testid="cart">{JSON.stringify(cart)}</div>
       <button onClick={() => void auth.refresh().catch(() => {})}>
@@ -300,9 +301,14 @@ describe("profile/cart isolation and visible logout", () => {
         current = null;
         return reply(null, 204);
       }
-      if (url === "/api/profile")
+      if (url === "/api/profile/summary")
         return reply({
           name: current?.user.name,
+          email: null,
+          phone: null,
+          birthday: null,
+          addresses: [],
+          wishlist: [],
           cart: { items: [{ productId: current?.user.id, count: 1 }] },
         });
       if (url === "/api/cart" && init?.method === "POST")
@@ -399,6 +405,64 @@ describe("profile/cart isolation and visible logout", () => {
     expect(fetchMock.mock.calls.some((call) => call[0] === "/api/cart")).toBe(
       false,
     );
+  });
+  it("profile outage remains visible without clearing authenticated identity or existing cart", async () => {
+    render(
+      <Providers>
+        <Probe />
+      </Providers>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("profile")).toHaveTextContent("A"),
+    );
+    fetchMock.mockResolvedValue(reply(authFailure("INTERNAL_ERROR"), 503));
+    fireEvent.click(screen.getByText("Refresh profile"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "temporarily unavailable",
+    );
+    expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("profile")).toHaveTextContent("A");
+    expect(screen.getByTestId("cart")).toHaveTextContent("user-a");
+  });
+  it("ignores a stale profile response after an account switch", async () => {
+    const original = fetchMock.getMockImplementation()!;
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/profile/summary" && current?.user.id === "user-a")
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      return original(url, init);
+    });
+    render(
+      <Providers>
+        <Probe />
+      </Providers>,
+    );
+    await waitFor(() => expect(finish).toBeDefined());
+    current = {
+      ...identity,
+      user: { ...identity.user, id: "user-b", name: "B" },
+    };
+    fireEvent(window, new StorageEvent("storage", { key: "mh-auth-change" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("profile")).toHaveTextContent("B"),
+    );
+    await act(async () => {
+      finish(
+        reply({
+          name: "A",
+          phone: null,
+          email: null,
+          birthday: null,
+          addresses: [],
+          wishlist: [],
+          cart: null,
+        }),
+      );
+    });
+    expect(screen.getByTestId("profile")).toHaveTextContent("B");
+    expect(screen.getByTestId("cart")).toHaveTextContent("user-b");
   });
   it("failed logout does not claim revocation or navigate", async () => {
     fetchMock.mockImplementation(async (url: string) =>

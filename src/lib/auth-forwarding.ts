@@ -8,7 +8,7 @@ function failure(status: number, code: string, message: string) {
     { status, headers: { "Cache-Control": "no-store" } },
   );
 }
-function trustedOrigin(req: Request, origin: string | null) {
+export function trustedOrigin(req: Request, origin: string | null) {
   if (!origin || origin === "null") return false;
   try {
     const production = process.env.NODE_ENV === "production";
@@ -32,7 +32,7 @@ function trustedOrigin(req: Request, origin: string | null) {
     return false;
   }
 }
-async function boundedBody(req: Request) {
+export async function boundedBody(req: Request, limit = 4096) {
   const reader = req.body?.getReader();
   if (!reader) return "";
   const chunks: Uint8Array[] = [];
@@ -41,7 +41,7 @@ async function boundedBody(req: Request) {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > 4096) {
+    if (size > limit) {
       await reader.cancel();
       return null;
     }
