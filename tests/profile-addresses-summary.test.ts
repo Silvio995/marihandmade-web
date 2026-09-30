@@ -1,3 +1,4 @@
+import { wireCart } from "./cart.fixture";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 const { db } = vi.hoisted(() => ({
@@ -24,10 +25,7 @@ const addresses = [
     createdAt: "2026-09-29T00:00:00.000Z",
   },
 ];
-const cart = {
-  id: "cart",
-  items: [{ productId: "p", count: 2, product: { id: "p", title: "Product" } }],
-};
+const cart = wireCart("user-a", [{ productId: "p", count: 2, product: null }]);
 const wishlist = [{ id: "w", title: "Wish" }];
 const request = () =>
   new Request("http://store.test/api/profile/summary?userId=attacker", {
@@ -43,7 +41,9 @@ beforeEach(() => {
         ? identity
         : url.pathname.endsWith("/profile")
           ? profile
-          : addresses,
+          : url.pathname.endsWith("/cart")
+            ? cart
+            : addresses,
     ),
   );
   db.cart.findUnique.mockResolvedValue(cart);
@@ -62,10 +62,10 @@ it("preserves cart items, wishlist, address IDs/order and profile using only bac
     wishlist,
   });
   expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(db.cart.findUnique).toHaveBeenCalledWith({
-    where: { userId: "user-a" },
-    include: { items: { include: { product: true } } },
-  });
+  expect(db.cart.findUnique).not.toHaveBeenCalled();
+  expect(
+    fetchMock.mock.calls.some(([url]) => url.pathname === "/api/cart"),
+  ).toBe(true);
   expect(db.product.findMany).toHaveBeenCalledWith({
     where: { wishlists: { some: { id: "user-a" } } },
   });
@@ -75,7 +75,12 @@ it("preserves cart items, wishlist, address IDs/order and profile using only bac
     expect(init.headers.get("cookie")).toBe("mh_session=opaque");
 });
 it("preserves missing cart as null", async () => {
-  db.cart.findUnique.mockResolvedValue(null);
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url, init) =>
+    url.pathname.endsWith("/cart")
+      ? Response.json(wireCart())
+      : original(url, init),
+  );
   expect((await (await GET(request())).json()).cart).toBeNull();
 });
 it.each([401, 403, 500])(
@@ -102,7 +107,7 @@ it.each([401, 404, 503])(
   },
 );
 it("does not expose transitional database failures", async () => {
-  db.cart.findUnique.mockRejectedValue(new Error("Prisma private data"));
+  db.product.findMany.mockRejectedValue(new Error("Prisma private data"));
   const response = await GET(request());
   expect(response.status).toBe(503);
   expect(await response.text()).not.toContain("Prisma");

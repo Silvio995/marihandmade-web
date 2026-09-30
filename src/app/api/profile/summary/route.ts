@@ -1,3 +1,5 @@
+import { requestBackendCart } from "@/lib/api/cart";
+import { cartDtoSchema } from "@/lib/cart-contracts";
 import { requestBackendPrivate } from "@/lib/api/profile-addresses";
 import { requestBackendAuth, getSetCookies } from "@/lib/api/auth";
 import { authSessionSchema } from "@/lib/auth-contracts";
@@ -23,16 +25,18 @@ export async function GET(req: Request) {
     if (auth.status !== 200)
       return Response.json(auth.body, { status: auth.status, headers });
     const session = authSessionSchema.parse(auth.body);
-    const [profileResponse, addressResponse] = await Promise.all([
+    const [profileResponse, addressResponse, cartResponse] = await Promise.all([
       requestBackendPrivate("/api/profile", { cookie, origin }),
       requestBackendPrivate("/api/addresses", { cookie, origin }),
+      requestBackendCart({ cookie, origin }),
     ]);
     for (const value of [
       ...getSetCookies(profileResponse.headers),
       ...getSetCookies(addressResponse.headers),
+      ...getSetCookies(cartResponse.headers),
     ])
       headers.append("Set-Cookie", value);
-    for (const response of [profileResponse, addressResponse]) {
+    for (const response of [profileResponse, addressResponse, cartResponse]) {
       if (!response.ok)
         return new Response(await response.arrayBuffer(), {
           status: response.status,
@@ -50,8 +54,15 @@ export async function GET(req: Request) {
       addressResponse,
       addressSchema.array(),
     );
+    const cartDto = cartDtoSchema.parse(await cartResponse.json());
+    if (cartDto.userId !== session.user.id) return privateFailure();
+    const cart =
+      cartDto.createdAt === null && !cartDto.items.length ? null : cartDto;
     const aggregates = await readAccountAggregates(session.user.id);
-    return Response.json({ ...profile, addresses, ...aggregates }, { headers });
+    return Response.json(
+      { ...profile, addresses, cart, ...aggregates },
+      { headers },
+    );
   } catch {
     return privateFailure();
   }

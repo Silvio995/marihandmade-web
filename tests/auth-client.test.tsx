@@ -1,3 +1,4 @@
+import { wireCart, webLocks } from "./cart.fixture";
 import {
   act,
   cleanup,
@@ -61,6 +62,10 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   localStorage.clear();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: webLocks(),
+  });
   replace.mockReset();
   refreshRouter.mockReset();
   window.history.replaceState({}, "", "/login");
@@ -291,6 +296,7 @@ describe("profile/cart isolation and visible logout", () => {
   const guestCart = { items: [{ productId: "guest-product", count: 2 }] };
   beforeEach(() => {
     current = identity;
+    let merged = false;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === "/api/auth/me")
         return reply(
@@ -311,8 +317,18 @@ describe("profile/cart isolation and visible logout", () => {
           wishlist: [],
           cart: { items: [{ productId: current?.user.id, count: 1 }] },
         });
-      if (url === "/api/cart" && init?.method === "POST")
-        return reply({ items: [{ productId: "merged", count: 3 }] });
+      if (url === "/api/cart") {
+        if (init?.method === "POST") merged = true;
+        return reply(
+          wireCart(current!.user.id, [
+            {
+              productId: merged ? "merged" : current!.user.id,
+              count: merged ? 3 : 1,
+              product: null,
+            },
+          ]),
+        );
+      }
       throw new Error("Unexpected request");
     });
   });
@@ -328,9 +344,11 @@ describe("profile/cart isolation and visible logout", () => {
       expect(screen.getByTestId("cart")).toHaveTextContent("guest-product"),
     );
     expect(JSON.parse(localStorage.getItem("Cart")!)).toEqual(guestCart);
-    expect(fetchMock.mock.calls.some((call) => call[0] === "/api/cart")).toBe(
-      false,
-    );
+    expect(
+      fetchMock.mock.calls.some(
+        (call) => call[0] === "/api/cart" && call[1]?.method === "POST",
+      ),
+    ).toBe(false);
   });
   it("merges only after authoritative login and removes only guest snapshot", async () => {
     current = null;
@@ -347,14 +365,14 @@ describe("profile/cart isolation and visible logout", () => {
       expect(screen.getByTestId("cart")).toHaveTextContent("merged"),
     );
     const mutations = fetchMock.mock.calls.filter(
-      (call) => call[0] === "/api/cart",
+      (call) => call[0] === "/api/cart" && call[1]?.method === "POST",
     );
     expect(mutations).toHaveLength(1);
-    expect(JSON.parse(mutations[0][1].body).items[0]).toEqual({
+    expect(JSON.parse(mutations[0][1].body).operations[0]).toEqual({
       productId: "guest-product",
       variantId: null,
-      count: 2,
-      merge: true,
+      delta: 2,
+      action: "adjust",
     });
     expect(localStorage.getItem("Cart")).toBe("null");
   });
@@ -402,9 +420,11 @@ describe("profile/cart isolation and visible logout", () => {
     );
     expect(screen.getByTestId("cart")).not.toHaveTextContent("user-a");
     expect(refreshRouter).toHaveBeenCalled();
-    expect(fetchMock.mock.calls.some((call) => call[0] === "/api/cart")).toBe(
-      false,
-    );
+    expect(
+      fetchMock.mock.calls.some(
+        (call) => call[0] === "/api/cart" && call[1]?.method === "POST",
+      ),
+    ).toBe(false);
   });
   it("profile outage remains visible without clearing authenticated identity or existing cart", async () => {
     render(
