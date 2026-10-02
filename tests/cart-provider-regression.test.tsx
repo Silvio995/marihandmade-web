@@ -1,4 +1,6 @@
-import { wireCart } from "./cart.fixture";
+// Wishlist integration is covered separately; keep these Catalog/Cart assertions isolated.
+vi.mock("@/components/native/WishlistButton", () => ({ default: () => null }));
+import { wireProduct, wireCart } from "./cart.fixture";
 import { useState } from "react";
 import {
   cleanup,
@@ -366,7 +368,7 @@ it("summary parsing retains cart/item metadata, variant identity, quantity and w
     email: null,
     birthday: null,
     addresses: [],
-    wishlist: [product],
+    wishlist: [wireProduct(product)],
     cart,
   };
   expect(profileSummarySchema.parse(summary)).toEqual(summary);

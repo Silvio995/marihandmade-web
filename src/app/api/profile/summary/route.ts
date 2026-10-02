@@ -8,7 +8,8 @@ import {
   addressSchema,
   parsePrivateResponse,
 } from "@/lib/profile-addresses-contracts";
-import { readAccountAggregates } from "@/lib/transitional-account-aggregates";
+import { requestBackendWishlist } from "@/lib/api/wishlist";
+import { wishlistSchema } from "@/lib/wishlist-contracts";
 import { privateFailure } from "@/lib/profile-addresses-forwarding";
 export const dynamic = "force-dynamic";
 // Explicit compatibility aggregate for the existing User/Cart providers.
@@ -25,18 +26,26 @@ export async function GET(req: Request) {
     if (auth.status !== 200)
       return Response.json(auth.body, { status: auth.status, headers });
     const session = authSessionSchema.parse(auth.body);
-    const [profileResponse, addressResponse, cartResponse] = await Promise.all([
-      requestBackendPrivate("/api/profile", { cookie, origin }),
-      requestBackendPrivate("/api/addresses", { cookie, origin }),
-      requestBackendCart({ cookie, origin }),
-    ]);
+    const [profileResponse, addressResponse, cartResponse, wishlistResponse] =
+      await Promise.all([
+        requestBackendPrivate("/api/profile", { cookie, origin }),
+        requestBackendPrivate("/api/addresses", { cookie, origin }),
+        requestBackendCart({ cookie, origin }),
+        requestBackendWishlist({ cookie, origin }),
+      ]);
     for (const value of [
       ...getSetCookies(profileResponse.headers),
       ...getSetCookies(addressResponse.headers),
       ...getSetCookies(cartResponse.headers),
+      ...getSetCookies(wishlistResponse.headers),
     ])
       headers.append("Set-Cookie", value);
-    for (const response of [profileResponse, addressResponse, cartResponse]) {
+    for (const response of [
+      profileResponse,
+      addressResponse,
+      cartResponse,
+      wishlistResponse,
+    ]) {
       if (!response.ok)
         return new Response(await response.arrayBuffer(), {
           status: response.status,
@@ -58,9 +67,12 @@ export async function GET(req: Request) {
     if (cartDto.userId !== session.user.id) return privateFailure();
     const cart =
       cartDto.createdAt === null && !cartDto.items.length ? null : cartDto;
-    const aggregates = await readAccountAggregates(session.user.id);
+    const wishlistDto = wishlistSchema.parse(await wishlistResponse.json());
+    const wishlist = wishlistDto.items.flatMap((item) =>
+      item.visibility === "PUBLIC" ? [item.product] : [],
+    );
     return Response.json(
-      { ...profile, addresses, cart, ...aggregates },
+      { ...profile, addresses, cart, wishlist },
       { headers },
     );
   } catch {

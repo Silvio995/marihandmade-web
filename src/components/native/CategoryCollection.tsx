@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import WishlistButton from "./WishlistButton";
 import { ProductGrid } from "@/components/native/ProductGrid";
 import {
   Select,
@@ -278,45 +279,52 @@ function RetailProductCard({ product }: { product: ProductWithIncludes }) {
   const price = formatEuro(lowestPrice);
 
   return (
-    <Link
-      href={href}
-      aria-label={title}
-      className="group block rounded-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/25 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f6f6f6]"
-    >
-      <div className="overflow-hidden rounded-[12px] border border-neutral-200 bg-white shadow-sm transition-colors duration-200 hover:border-neutral-300">
-        <div className="relative aspect-[4/3] w-full bg-white">
-          <Image
-            src={primaryImage}
-            alt={title}
-            fill
-            className="object-contain p-6 transition duration-200 group-hover:scale-[1.01]"
-            sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 26vw, (min-width: 640px) 48vw, 100vw"
-          />
-          <div className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/95 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-700">
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${isPurchasable ? "bg-emerald-500" : "bg-neutral-300"}`}
+    <div className="relative">
+      <Link
+        href={href}
+        aria-label={title}
+        className="group block rounded-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/25 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f6f6f6]"
+      >
+        <div className="overflow-hidden rounded-[12px] border border-neutral-200 bg-white shadow-sm transition-colors duration-200 hover:border-neutral-300">
+          <div className="relative aspect-[4/3] w-full bg-white">
+            <Image
+              src={primaryImage}
+              alt={title}
+              fill
+              className="object-contain p-6 transition duration-200 group-hover:scale-[1.01]"
+              sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 26vw, (min-width: 640px) 48vw, 100vw"
             />
-            <span>{getAvailabilityLabel(product)}</span>
+            <div className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/95 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-700">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${isPurchasable ? "bg-emerald-500" : "bg-neutral-300"}`}
+              />
+              <span>{getAvailabilityLabel(product)}</span>
+            </div>
           </div>
-        </div>
 
-        <div className="space-y-1.5 border-t border-neutral-200 px-4 pb-5 pt-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
-            {product.categories?.map((category) => category.title).join(" · ")}
-          </p>
-          <h3 className="line-clamp-2 text-[15px] font-semibold leading-5 text-neutral-900">
-            {title}
-          </h3>
-          <div className="flex items-baseline gap-2">
-            <p className="text-sm font-semibold text-neutral-900">{price}</p>
-            {compareAtPrice != null && (
-              <p className="text-xs text-neutral-500 line-through">
-                {formatEuro(compareAtPrice)}
-              </p>
-            )}
+          <div className="space-y-1.5 border-t border-neutral-200 px-4 pb-5 pt-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+              {product.categories
+                ?.map((category) => category.title)
+                .join(" · ")}
+            </p>
+            <h3 className="line-clamp-2 text-[15px] font-semibold leading-5 text-neutral-900">
+              {title}
+            </h3>
+            <div className="flex items-baseline gap-2">
+              <p className="text-sm font-semibold text-neutral-900">{price}</p>
+              {compareAtPrice != null && (
+                <p className="text-xs text-neutral-500 line-through">
+                  {formatEuro(compareAtPrice)}
+                </p>
+              )}
+            </div>
           </div>
         </div>
+      </Link>
+      <div className="absolute right-3 top-3 z-10">
+        <WishlistButton productId={product.id} compact />
       </div>
-    </Link>
+    </div>
   );
 }

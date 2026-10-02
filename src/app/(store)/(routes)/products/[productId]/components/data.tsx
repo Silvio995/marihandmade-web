@@ -17,6 +17,7 @@ import {
 } from "@/lib/variant-selection";
 
 import CartButton from "./cart_button";
+import WishlistButton from "./wishlist_button";
 
 const EMPTY_VARIANTS: NonNullable<ProductWithIncludes["variants"]> = [];
 const EMPTY_OPTIONS: NonNullable<ProductWithIncludes["options"]> = [];
@@ -260,6 +261,7 @@ export function DataSection({ product }: { product: ProductWithIncludes }) {
             variantPurchasable={activeVariantPurchasable}
           />
         </div>
+        <WishlistButton product={product} />
         <p className="text-xs leading-relaxed text-neutral-600">
           Pagamento sicuro. Per personalizzazioni, scrivici su WhatsApp.
         </p>

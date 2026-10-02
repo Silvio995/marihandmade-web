@@ -1,4 +1,4 @@
-import { wireCart } from "./cart.fixture";
+import { wireProduct, wireCart } from "./cart.fixture";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 const { db } = vi.hoisted(() => ({
@@ -26,7 +26,13 @@ const addresses = [
   },
 ];
 const cart = wireCart("user-a", [{ productId: "p", count: 2, product: null }]);
-const wishlist = [{ id: "w", title: "Wish" }];
+const wishlist = [wireProduct({ id: "w", title: "Wish" })];
+const wishlistDto = {
+  items: [
+    { productId: "w", visibility: "PUBLIC", product: wishlist[0] },
+    { productId: "hidden", visibility: "UNAVAILABLE", product: null },
+  ],
+};
 const request = () =>
   new Request("http://store.test/api/profile/summary?userId=attacker", {
     headers: { Cookie: "mh_session=opaque", "X-User-Id": "attacker" },
@@ -43,7 +49,9 @@ beforeEach(() => {
           ? profile
           : url.pathname.endsWith("/cart")
             ? cart
-            : addresses,
+            : url.pathname.endsWith("/wishlist")
+              ? wishlistDto
+              : addresses,
     ),
   );
   db.cart.findUnique.mockResolvedValue(cart);
@@ -66,9 +74,10 @@ it("preserves cart items, wishlist, address IDs/order and profile using only bac
   expect(
     fetchMock.mock.calls.some(([url]) => url.pathname === "/api/cart"),
   ).toBe(true);
-  expect(db.product.findMany).toHaveBeenCalledWith({
-    where: { wishlists: { some: { id: "user-a" } } },
-  });
+  expect(db.product.findMany).not.toHaveBeenCalled();
+  expect(
+    fetchMock.mock.calls.some(([url]) => url.pathname === "/api/wishlist"),
+  ).toBe(true);
   expect(db.user.findUnique).not.toHaveBeenCalled();
   expect(db.address.findMany).not.toHaveBeenCalled();
   for (const [, init] of fetchMock.mock.calls)
@@ -106,8 +115,21 @@ it.each([401, 404, 503])(
     expect(db.cart.findUnique).not.toHaveBeenCalled();
   },
 );
-it("does not expose transitional database failures", async () => {
-  db.product.findMany.mockRejectedValue(new Error("Prisma private data"));
+it("does not expose invalid Backend Wishlist DTOs", async () => {
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url, init) =>
+    url.pathname.endsWith("/wishlist")
+      ? Response.json({
+          items: [
+            {
+              productId: "hidden",
+              visibility: "PUBLIC",
+              product: { metadata: "private" },
+            },
+          ],
+        })
+      : original(url, init),
+  );
   const response = await GET(request());
   expect(response.status).toBe(503);
   expect(await response.text()).not.toContain("Prisma");

@@ -1,4 +1,5 @@
-vi.mock('@/components/native/nav/user', () => ({ UserNav: () => null }))
+vi.mock("@/components/native/WishlistButton", () => ({ default: () => null }));
+vi.mock("@/components/native/nav/user", () => ({ UserNav: () => null }));
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { productDto } from "@/lib/api/contracts";

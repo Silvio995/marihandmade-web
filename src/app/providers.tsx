@@ -1,4 +1,5 @@
 "use client";
+import { WishlistProvider } from "@/state/Wishlist";
 import { CartContextProvider } from "@/state/Cart";
 import { UserContextProvider } from "@/state/User";
 import { AuthProvider, useAuth } from "@/state/Auth";
@@ -29,8 +30,10 @@ function IdentityProviders({ children }: { children: React.ReactNode }) {
       )}
       <UserContextProvider key={identity}>
         <CartContextProvider>
-          {children}
-          <Toaster position="top-right" />
+          <WishlistProvider>
+            {children}
+            <Toaster position="top-right" />
+          </WishlistProvider>
         </CartContextProvider>
       </UserContextProvider>
     </>

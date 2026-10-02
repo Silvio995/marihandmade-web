@@ -1,3 +1,5 @@
+// Wishlist integration is covered separately; keep these Catalog/Cart assertions isolated.
+vi.mock("@/components/native/WishlistButton", () => ({ default: () => null }));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { productDto } from "@/lib/api/contracts";

@@ -1,3 +1,4 @@
+import WishlistButton from "@/components/native/WishlistButton";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
@@ -88,7 +89,7 @@ export function CatalogProductCard({ product }: { product: ProductDto }) {
   const price = getVariantMinPrice(product);
   const compare = getCatalogCompareAtPrice(product);
   return (
-    <article className="shop-product min-w-0">
+    <article className="shop-product relative min-w-0">
       <Link
         href={`/products/${encodeURIComponent(product.slug ?? product.id)}`}
         className="group block"
@@ -136,6 +137,9 @@ export function CatalogProductCard({ product }: { product: ProductDto }) {
           </span>
         </div>
       </Link>
+      <div className="absolute right-3 top-3 z-10">
+        <WishlistButton productId={product.id} compact />
+      </div>
     </article>
   );
 }

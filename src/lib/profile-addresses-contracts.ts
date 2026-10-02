@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { productDto } from "@/lib/api/contracts";
 import type { ProductWithIncludes } from "@/types/product";
 export const profileSchema = z.object({
   name: z.string().nullable(),
@@ -30,7 +31,7 @@ const product = z.custom<ProductWithIncludes>(
 );
 export const profileSummarySchema = profileSchema.extend({
   addresses: addressSchema.array(),
-  wishlist: product.array(),
+  wishlist: productDto.array(),
   cart: z
     .object({
       items: z

@@ -105,9 +105,9 @@ describe("owner-scoped transitional Prisma", () => {
     );
     expect(db.address.create).not.toHaveBeenCalled();
   });
-  it("wishlist mutations assign backend identity", async () => {
-    await wishlist(req());
-    expect(db.user.update.mock.calls[0][0].where).toEqual({ id: "user-a" });
+  it("wishlist rejects client ownership without Web Prisma access", async () => {
+    expect((await wishlist(req())).status).toBe(400);
+    expect(db.user.update).not.toHaveBeenCalled();
   });
   it("cart rejects query ownership injection without Web Prisma access", async () => {
     expect((await cart(req())).status).toBe(400);
