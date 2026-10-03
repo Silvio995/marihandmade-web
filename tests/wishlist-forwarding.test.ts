@@ -1,6 +1,10 @@
+// @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { NextRequestAdapter } from "next/dist/server/web/spec-extension/adapters/next-request";
+import { NodeNextRequest } from "next/dist/server/base-http/node";
 import { wireProduct } from "./cart.fixture";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => {
@@ -96,6 +100,29 @@ it("DELETE forwards ID in fixed path with no body and preserves 204", async () =
     method: "DELETE",
     body: undefined,
   });
+});
+it("accepts Next.js bodyless DELETE streams for the smoke-test product", async () => {
+  const productId = "cmsvmzrfy000pt1mvkxzihbyl";
+  const incoming = Object.assign(Readable.from([]), {
+    method: "DELETE",
+    url: `http://store.test/api/wishlist/${productId}`,
+    headers: { cookie: "mh_session=opaque", origin: "http://store.test" },
+  });
+  const request = NextRequestAdapter.fromNodeNextRequest(
+    new NodeNextRequest(incoming as never),
+    new Request("http://store.test").signal,
+  );
+  expect(request.body).not.toBeNull();
+  fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+  const response = await DELETE(request, { params: { productId } });
+  expect(response.status).toBe(204);
+  expect(await response.text()).toBe("");
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url.pathname).toBe(`/api/wishlist/${productId}`);
+  expect(init.body).toBeUndefined();
+  expect(init.headers.get("content-type")).toBeNull();
+  expect(init.headers.get("cookie")).toBe("mh_session=opaque");
+  expect(init.headers.get("origin")).toBe("http://store.test");
 });
 it("rejects untrusted/missing Origin, invalid bodies, queries and DELETE bodies", async () => {
   for (const origin of ["", "https://evil.test"])

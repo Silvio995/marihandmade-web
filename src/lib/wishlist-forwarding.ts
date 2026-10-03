@@ -41,7 +41,12 @@ export async function forwardWishlist(
       }
     }
     if (method === "DELETE") {
-      if (!wishlistProductId.safeParse(productId).success || req.body)
+      // Next.js supplies a stream even for a bodyless DELETE. Validate bytes,
+      // rather than the presence of the stream, and never forward a body.
+      if (
+        !wishlistProductId.safeParse(productId).success ||
+        (await boundedBody(req, 4096)) !== ""
+      )
         return privateFailure(400, "BAD_REQUEST");
     }
     const response = await requestBackendWishlist({

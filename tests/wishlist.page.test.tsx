@@ -165,6 +165,32 @@ describe("shared Wishlist page, detail and cards", () => {
       screen.getAllByRole("button", { name: "Add to Wishlist" }),
     ).toHaveLength(2);
   });
+  it("keeps confirmed removal when the following GET fails", async () => {
+    api.get
+      .mockResolvedValueOnce({ items: [item] })
+      .mockRejectedValue(new WishlistError(503));
+    render(
+      <WishlistProvider>
+        <WishlistButton productId="p" />
+        <Controls />
+      </WishlistProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove from Wishlist" }),
+    );
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("membership")).toBeEmptyDOMElement(),
+    );
+    expect(screen.getByTestId("items")).toBeEmptyDOMElement();
+    expect(api.remove).toHaveBeenCalledWith("p");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "temporarily unavailable",
+    );
+    expect(
+      screen.getByRole("button", { name: "Add to Wishlist" }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
   it("all active card renderers share Product-ID membership with accessible sibling actions", async () => {
     api.get
       .mockResolvedValueOnce({ items: [] })
