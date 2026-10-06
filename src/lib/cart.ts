@@ -12,7 +12,40 @@ export function writeLocalCart(
     throw new Error(
       "Guest cart is awaiting transfer. Retry the cart before editing it.",
     );
-  window.localStorage.setItem("Cart", JSON.stringify(cart));
+  // Keep checkout cleanup receipts in the same atomic localStorage value.
+  // Guest edits must not erase the replay marker.
+  let checkoutOperations: string[] = [];
+  try {
+    const previous = JSON.parse(window.localStorage.getItem("Cart") ?? "null");
+    if (Array.isArray(previous?.checkoutOperations))
+      checkoutOperations = previous.checkoutOperations;
+  } catch {
+    /* no prior valid Cart */
+  }
+  window.localStorage.setItem(
+    "Cart",
+    JSON.stringify(
+      cart
+        ? {
+            ...cart,
+            ...(checkoutOperations.length ||
+            (cart as CartSummary & { checkoutOperations?: string[] })
+              ?.checkoutOperations?.length
+              ? {
+                  checkoutOperations: [
+                    ...new Set([
+                      ...checkoutOperations,
+                      ...((
+                        cart as CartSummary & { checkoutOperations?: string[] }
+                      )?.checkoutOperations ?? []),
+                    ]),
+                  ],
+                }
+              : {}),
+          }
+        : cart,
+    ),
+  );
 }
 
 export function getLocalCart(): CartSummary | null {

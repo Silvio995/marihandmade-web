@@ -1,37 +1,27 @@
-import { getServerAuthSession } from '@/lib/auth'
-import prisma from '@/lib/prisma'
-import { notFound, redirect } from 'next/navigation'
-import Link from 'next/link'
+import { getServerAuthSession } from "@/lib/auth";
+import { readOrders } from "@/lib/server-orders";
+import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic";
 
-function formatDate(date: Date) {
-  return new Intl.DateTimeFormat('it-IT', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date)
+function formatDate(date: string) {
+  return new Intl.DateTimeFormat("it-IT", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(date));
 }
 
-export default async function OrdersPage() {
-  const session = await getServerAuthSession()
-  if (!session?.user?.id) redirect('/login')
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: { cursor?: string };
+}) {
+  const session = await getServerAuthSession();
+  if (!session?.user?.id) redirect("/login");
 
-  const orders = await prisma.order.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      number: true,
-      status: true,
-      isPaid: true,
-      payable: true,
-      createdAt: true,
-      shippingStatus: true,
-    },
-  })
-
-  if (!orders) notFound()
+  const { items: orders, nextCursor } = await readOrders(searchParams.cursor);
 
   return (
     <div className="p-6 space-y-4">
@@ -51,21 +41,30 @@ export default async function OrdersPage() {
                   <p className="font-semibold">
                     Ordine {order.number ?? order.id.slice(0, 8)}
                   </p>
-              <p className="text-neutral-600">{formatDate(order.createdAt)}</p>
-            </div>
-            <div className="text-right space-y-1">
-              <p className="text-sm">Stato: {order.status}</p>
-              <p className="text-sm">Pagamento: {order.isPaid ? 'Pagato' : 'In attesa'}</p>
-              <p className="text-sm">Spedizione: {order.shippingStatus ?? 'PENDING'}</p>
-              <p className="font-semibold">
-                Totale: {typeof order.payable === 'number' ? order.payable.toFixed(2) : '—'}
-              </p>
-            </div>
-          </div>
+                  <p className="text-neutral-600">
+                    {formatDate(order.createdAt)}
+                  </p>
+                </div>
+                <div className="text-right space-y-1">
+                  <p className="text-sm">Stato: {order.status}</p>
+                  <p className="text-sm">
+                    Pagamento: {order.isPaid ? "Pagato" : "In attesa"}
+                  </p>
+                  <p className="text-sm">
+                    Spedizione: {order.shippingStatus ?? "PENDING"}
+                  </p>
+                  <p className="font-semibold">Totale: {order.payable}</p>
+                </div>
+              </div>
             </Link>
           ))}
         </div>
       )}
+      {nextCursor && (
+        <Link href={`/profile/orders?cursor=${encodeURIComponent(nextCursor)}`}>
+          Altri ordini
+        </Link>
+      )}
     </div>
-  )
+  );
 }

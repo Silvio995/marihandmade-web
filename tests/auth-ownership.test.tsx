@@ -113,12 +113,11 @@ describe("owner-scoped transitional Prisma", () => {
     expect((await cart(req())).status).toBe(400);
     expect(db.cart.findUniqueOrThrow).not.toHaveBeenCalled();
   });
-  it("order detail assigns backend identity", async () => {
-    await order(req(), { params: { orderId: "order-b" } });
-    expect(db.order.findUniqueOrThrow.mock.calls[0][0].where).toEqual({
-      id: "order-b",
-      userId: "user-a",
-    });
+  it("order detail rejects caller ownership query without Web Prisma", async () => {
+    expect(
+      (await order(req(), { params: { orderId: "order-b" } })).status,
+    ).toBe(400);
+    expect(db.order.findUniqueOrThrow).not.toHaveBeenCalled();
   });
   it.each([email, phone, unsubscribe])(
     "subscription mutation uses backend ID",

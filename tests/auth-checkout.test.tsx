@@ -1,3 +1,4 @@
+import { checkoutPreview, orderCreated } from "./checkout-orders.fixture";
 import {
   cleanup,
   fireEvent,
@@ -6,14 +7,26 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const { auth } = vi.hoisted(() => ({
-  auth: { authenticated: false, loading: false, error: false },
+const { auth, refreshCart } = vi.hoisted(() => ({
+  refreshCart: vi.fn().mockResolvedValue(undefined),
+  auth: {
+    authenticated: false,
+    loading: false,
+    error: false,
+    accountId: "user-a",
+  },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/hooks/useAuthentication", () => ({ useAuthenticated: () => auth }));
+vi.mock("@/state/Auth", () => ({
+  useAuth: () => ({
+    session: auth.authenticated ? { user: { id: auth.accountId } } : null,
+  }),
+}));
 vi.mock("@/state/Cart", () => ({
   useCartContext: () => ({
     loading: false,
+    refreshCart,
     cart: { items: [{ productId: "p", count: 1 }] },
   }),
 }));
@@ -22,6 +35,8 @@ import { getLocalCart } from "@/lib/cart";
 const fetchMock = vi.fn();
 beforeEach(() => {
   auth.authenticated = false;
+  auth.accountId = "user-a";
+  refreshCart.mockClear();
   auth.loading = false;
   auth.error = false;
   vi.stubGlobal("fetch", fetchMock);
@@ -55,9 +70,10 @@ it("preserves guest order fields and passes independent capability to PayPal", a
     },
   ];
   fetchMock
-    .mockResolvedValueOnce(Response.json({ lines, isCheckoutReady: true }))
+    .mockResolvedValueOnce(Response.json(checkoutPreview))
     .mockResolvedValueOnce(
       Response.json({
+        ...orderCreated,
         id: "guest-order",
         guestOrderAccessToken: "signed-capability",
       }),
@@ -82,8 +98,14 @@ it("preserves guest order fields and passes independent capability to PayPal", a
     email: "guest@example.test",
     firstName: "Guest",
     lastName: "Customer",
+    phone: null,
   });
-  expect(order.checkoutLines).toEqual(lines);
+  expect(order.checkoutLines).toEqual([
+    { productId: "p", variantId: null, quantity: 1 },
+  ]);
+  expect(fetchMock.mock.calls[1][1].headers["Idempotency-Key"]).toMatch(
+    /^[0-9a-f-]{36}$/,
+  );
   expect(order.userId).toBeUndefined();
   expect(fetchMock.mock.calls[2][1].headers).toEqual({
     "x-guest-order-access": "signed-capability",
@@ -124,20 +146,7 @@ it("selects the first/newest address and passes the unchanged ID to existing ord
         { ...savedAddress, id: "older", address: "Older street" },
       ]),
     )
-    .mockResolvedValueOnce(
-      Response.json({
-        lines: [
-          {
-            productId: "p",
-            variantId: null,
-            quantity: 1,
-            unitPrice: 12,
-            subtotal: 12,
-          },
-        ],
-        isCheckoutReady: true,
-      }),
-    )
+    .mockResolvedValueOnce(Response.json(checkoutPreview))
     .mockResolvedValueOnce(new Response("Order unavailable", { status: 503 }));
   render(<Checkout />);
   await waitFor(() =>
@@ -168,3 +177,81 @@ it.each([401, 503])(
     ).toBeDisabled();
   },
 );
+
+function fillGuest() {
+  fireEvent.change(screen.getByLabelText("Nome"), {
+    target: { value: "Guest" },
+  });
+  fireEvent.change(screen.getByLabelText("Cognome"), {
+    target: { value: "Customer" },
+  });
+  fireEvent.change(screen.getByLabelText("Email"), {
+    target: { value: "g@example.test" },
+  });
+}
+it("refresh recovers ambiguous guest request with same key and skips stale preview", async () => {
+  fetchMock
+    .mockResolvedValueOnce(Response.json(checkoutPreview))
+    .mockRejectedValueOnce(new Error("lost response"));
+  const first = render(<Checkout />);
+  fillGuest();
+  fireEvent.click(screen.getByText("Completa ordine come ospite"));
+  await waitFor(() => expect(alert).toHaveBeenCalled());
+  const original = fetchMock.mock.calls[1][1];
+  first.unmount();
+  fetchMock
+    .mockResolvedValueOnce(
+      Response.json({ ...orderCreated, guestOrderAccessToken: "signed" }),
+    )
+    .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+  render(<Checkout />);
+  fireEvent.click(await screen.findByText("Riprendi ordine"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+  expect(fetchMock.mock.calls[2][0]).toBe("/api/orders");
+  expect(fetchMock.mock.calls[2][1].headers["Idempotency-Key"]).toBe(
+    original.headers["Idempotency-Key"],
+  );
+  expect(fetchMock.mock.calls[2][1].body).toBe(original.body);
+  expect(refreshCart).toHaveBeenCalledTimes(1);
+});
+it("confirmed account Order refreshes Backend Cart before payment handoff", async () => {
+  auth.authenticated = true;
+  fetchMock
+    .mockResolvedValueOnce(Response.json([savedAddress]))
+    .mockResolvedValueOnce(Response.json(checkoutPreview))
+    .mockResolvedValueOnce(Response.json(orderCreated))
+    .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+  render(<Checkout />);
+  await screen.findByRole("combobox");
+  fireEvent.click(screen.getByText("Completa ordine"));
+  await screen.findByText("Riprova PayPal");
+  expect(refreshCart).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[2][0]).toBe("/api/orders");
+});
+it("account switch while awaiting preview prevents incompatible Order submission", async () => {
+  auth.authenticated = true;
+  let release: (value: Response) => void = () => {};
+  const pending = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  fetchMock.mockImplementation(async (url) =>
+    url === "/api/addresses" ? Response.json([savedAddress]) : pending,
+  );
+  const mounted = render(<Checkout />);
+  await screen.findByRole("combobox");
+  fireEvent.click(screen.getByText("Completa ordine"));
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/checkout")).toBe(
+      true,
+    ),
+  );
+  auth.accountId = "user-b";
+  mounted.rerender(<Checkout />);
+  release(Response.json(checkoutPreview));
+  await waitFor(() =>
+    expect(screen.getByText("Completa ordine")).toBeEnabled(),
+  );
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/orders")).toBe(
+    false,
+  );
+});

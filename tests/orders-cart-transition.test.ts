@@ -1,158 +1,183 @@
-import { beforeEach, afterEach, expect, it, vi } from "vitest";
+// @vitest-environment node
+import { beforeEach, afterEach, it, expect, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-const { db, tx, getUserId } = vi.hoisted(() => ({
-  getUserId: vi.fn(),
-  db: {
-    cart: { findUnique: vi.fn() },
-    product: { findMany: vi.fn() },
-    address: { findFirst: vi.fn() },
-    owner: { findMany: vi.fn() },
-    notification: { createMany: vi.fn() },
-    cartItem: { deleteMany: vi.fn() },
-    $transaction: vi.fn(),
+import { POST, GET } from "@/app/api/orders/route";
+import { GET as detail } from "@/app/api/orders/[orderId]/route";
+import { POST as preview } from "@/app/api/checkout/route";
+import { checkoutPreview, orderCreated } from "./checkout-orders.fixture";
+const origin = "http://localhost:7777",
+  key = "11111111-1111-4111-8111-111111111111",
+  fetchMock = vi.fn();
+const request = (
+  body: unknown = {
+    checkoutLines: [{ productId: "p", variantId: null, quantity: 1 }],
   },
-  tx: {
-    inventoryItem: {
-      findUnique: vi.fn(),
-      updateMany: vi.fn(),
-      update: vi.fn(),
+  headers: Record<string, string> = {},
+  method = "POST",
+  path = "orders",
+) =>
+  new Request(`${origin}/api/${path}`, {
+    method,
+    headers: {
+      Origin: origin,
+      "Content-Type": "application/json",
+      "Idempotency-Key": key,
+      Cookie: "mh_session=opaque",
+      ...headers,
     },
-    product: { updateMany: vi.fn() },
-    order: { create: vi.fn() },
-    cartItem: { deleteMany: vi.fn() },
-  },
-}));
-vi.mock("@/lib/auth", () => ({
-  getCurrentUserId: getUserId,
-  createGuestOrderAccessToken: vi.fn(),
-  getGuestOrderAccessCookieOptions: vi.fn(),
-  GUEST_ORDER_ACCESS_COOKIE: "guest_order_access",
-}));
-vi.mock("@/lib/prisma", () => ({ default: db }));
-vi.mock("@/lib/email", () => ({
-  sendOrderEmail: vi.fn(),
-  sendOwnerOrderEmail: vi.fn(),
-}));
-import { POST } from "@/app/api/orders/route";
-const variant = {
-  id: "v",
-  productId: "p",
-  price: 25,
-  active: true,
-  inventory: {
-    quantityOnHand: 4,
-    quantityReserved: 2,
-    trackQuantity: true,
-    allowBackorder: false,
-  },
-};
-const product = {
-  id: "p",
-  price: 999,
-  discount: 0,
-  stock: 999,
-  isAvailable: true,
-  variants: [variant],
-};
-let state: { items: any[]; orders: any[]; receipts: string[] };
-const request = (quantity = 2) =>
-  new Request("http://store.test/api/orders", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      checkoutLines: [
-        { productId: "p", variantId: "v", quantity, unitPrice: 1 },
-      ],
-    }),
+    ...(method === "GET" ? {} : { body: JSON.stringify(body) }),
   });
 beforeEach(() => {
-  vi.clearAllMocks();
-  getUserId.mockResolvedValue("user-a");
-  state = {
-    items: [{ productId: "p", variantId: "v", count: 2 }],
-    orders: [],
-    receipts: ["existing-cart-operation"],
-  };
-  db.cart.findUnique.mockImplementation(async () => ({
-    userId: "user-a",
-    user: { email: null },
-    items: state.items,
-  }));
-  db.product.findMany.mockResolvedValue([product]);
-  db.owner.findMany.mockResolvedValue([]);
-  tx.inventoryItem.findUnique.mockResolvedValue({
-    ...variant.inventory,
-    variantId: "v",
-  });
-  tx.inventoryItem.updateMany.mockResolvedValue({ count: 1 });
-  tx.order.create.mockImplementation(async ({ data }) => {
-    const order = { id: "order", number: 1, userId: "user-a", ...data };
-    state.orders.push(order);
-    return order;
-  });
-  tx.cartItem.deleteMany.mockImplementation(async () => {
-    state.items = [];
-    return { count: 1 };
-  });
-  db.$transaction.mockImplementation(async (run) => {
-    const snapshot = structuredClone(state);
-    try {
-      return await run(tx);
-    } catch (error) {
-      state = snapshot;
-      throw error;
-    }
-  });
-  vi.spyOn(console, "error").mockImplementation(() => {});
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("MARIHANDMADE_API_URL", "http://backend.test");
 });
 afterEach(() => {
-  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
-it("keeps the owner-scoped Prisma Cart read and transactional consumption together with order creation", async () => {
-  const response = await POST(request());
-  expect(response.status).toBe(200);
-  expect(db.cart.findUnique.mock.calls[0][0].where).toEqual({
-    userId: "user-a",
-  });
-  expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({
-    where: { cartId: "user-a" },
-  });
-  expect(db.cartItem.deleteMany).not.toHaveBeenCalled();
-  expect(db.$transaction).toHaveBeenCalledTimes(1);
-  expect(state.items).toEqual([]);
-  expect(state.orders).toHaveLength(1);
-  expect(state.receipts).toEqual(["existing-cart-operation"]);
-});
-it("reprices selected variants independently of submitted prices and legacy product stock", async () => {
-  const response = await POST(request());
-  expect(response.status).toBe(200);
-  expect(
-    tx.order.create.mock.calls[0][0].data.orderItems.create[0],
-  ).toMatchObject({ count: 2, price: 25, variant: { connect: { id: "v" } } });
-  expect(tx.product.updateMany).not.toHaveBeenCalled();
-});
-it("retains cart when inventory changes before the order transaction", async () => {
-  tx.inventoryItem.findUnique.mockResolvedValue({
-    ...variant.inventory,
-    quantityReserved: 4,
-    variantId: "v",
-  });
-  expect((await POST(request())).status).toBe(400);
-  expect(state.items).toHaveLength(1);
-  expect(state.orders).toEqual([]);
-  expect(tx.cartItem.deleteMany).not.toHaveBeenCalled();
-});
-it("rolls back order creation if transactional cart consumption fails", async () => {
-  tx.cartItem.deleteMany.mockRejectedValueOnce(
-    new Error("simulated transaction failure"),
+it("forwards only intent and Cookie/actual Origin/UUID without Web persistence", async () => {
+  fetchMock.mockResolvedValue(
+    Response.json(orderCreated, {
+      headers: { "Idempotency-Replayed": "true" },
+    }),
   );
-  expect((await POST(request())).status).toBe(500);
-  expect(state.items).toHaveLength(1);
-  expect(state.orders).toEqual([]);
-  expect(state.receipts).toEqual(["existing-cart-operation"]);
+  const r = await POST(request());
+  expect(r.status).toBe(200);
+  expect(await r.json()).toEqual(orderCreated);
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url.href).toBe("http://backend.test/api/orders");
+  expect(init.headers.get("Cookie")).toBe("mh_session=opaque");
+  expect(init.headers.get("Origin")).toBe(origin);
+  expect(init.headers.get("Idempotency-Key")).toBe(key);
+  expect(init.redirect).toBe("error");
+  expect(init.cache).toBe("no-store");
+  expect(r.headers.get("idempotency-replayed")).toBe("true");
 });
-it("rejects mismatch without consuming the persisted account cart", async () => {
-  expect((await POST(request(1))).status).toBe(409);
-  expect(db.$transaction).not.toHaveBeenCalled();
-  expect(state.items).toHaveLength(1);
+it("preserves guest scope and compatible capability cookies", async () => {
+  const headers = new Headers();
+  headers.append(
+    "Set-Cookie",
+    "mh_guest_checkout=signed; HttpOnly; Path=/; SameSite=Lax",
+  );
+  headers.append(
+    "Set-Cookie",
+    "guest_order_access=capability; HttpOnly; Path=/",
+  );
+  fetchMock.mockResolvedValue(Response.json(orderCreated, { headers }));
+  const r = await POST(request());
+  expect(r.headers.get("set-cookie")).toContain("mh_guest_checkout");
+  expect(r.headers.get("set-cookie")).toContain("guest_order_access");
+  expect(r.headers.get("vary")).toBe("Cookie");
+});
+it.each(["userId", "price", "payable", "status", "stock"])(
+  "rejects client %s",
+  async (field) => {
+    expect(
+      (
+        await POST(
+          request({
+            checkoutLines: [{ productId: "p", quantity: 1 }],
+            [field]: "injected",
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);
+it("rejects stale line money", async () => {
+  expect(
+    (
+      await POST(
+        request({
+          checkoutLines: [{ productId: "p", quantity: 1, unitPrice: 1 }],
+        }),
+      )
+    ).status,
+  ).toBe(400);
+});
+it.each(["null", "https://evil.test"])(
+  "rejects untrusted Origin %s",
+  async (Origin) => {
+    expect((await POST(request(undefined, { Origin }))).status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);
+it("rejects missing/invalid key, non JSON and excessive body", async () => {
+  expect(
+    (await POST(request(undefined, { "Idempotency-Key": "bad" }))).status,
+  ).toBe(400);
+  expect(
+    (await POST(request(undefined, { "Content-Type": "text/plain" }))).status,
+  ).toBe(415);
+  expect((await POST(request({ padding: "x".repeat(65536) }))).status).toBe(
+    413,
+  );
+});
+it.each([401, 404, 409, 429])(
+  "maps safe upstream status %s without exposing messages",
+  async (status) => {
+    const code =
+      status === 401
+        ? "UNAUTHENTICATED"
+        : status === 404
+          ? "NOT_FOUND"
+          : status === 409
+            ? "CART_CHANGED"
+            : "RATE_LIMITED";
+    fetchMock.mockResolvedValue(
+      Response.json(
+        { error: { code, message: "secret internal detail" } },
+        { status },
+      ),
+    );
+    const r = await POST(request());
+    expect(r.status).toBe(status);
+    expect(await r.text()).not.toContain("secret internal");
+  },
+);
+it.each(["network", "raw", "malformed", "204", "user"])(
+  "unavailable upstream %s is safe 503",
+  async (mode) => {
+    if (mode === "network") fetchMock.mockRejectedValue(new Error("SECRET"));
+    else if (mode === "raw")
+      fetchMock.mockResolvedValue(new Response("SECRET", { status: 500 }));
+    else if (mode === "204")
+      fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    else
+      fetchMock.mockResolvedValue(
+        Response.json(
+          mode === "user"
+            ? { ...orderCreated, user: { passwordHash: "SECRET" } }
+            : {},
+        ),
+      );
+    const r = await POST(request());
+    expect(r.status).toBe(503);
+    expect(await r.text()).not.toContain("SECRET");
+  },
+);
+it("checkout forwards strict preview with no monetary input", async () => {
+  fetchMock.mockResolvedValue(Response.json(checkoutPreview));
+  expect(
+    (await preview(request(undefined, {}, "POST", "checkout"))).status,
+  ).toBe(200);
+});
+it("list forwards bounded pagination; detail ownership 404", async () => {
+  fetchMock.mockResolvedValue(Response.json({ items: [], nextCursor: null }));
+  expect((await GET(request(undefined, {}, "GET"))).status).toBe(200);
+  fetchMock.mockResolvedValue(
+    Response.json(
+      { error: { code: "NOT_FOUND", message: "missing" } },
+      { status: 404 },
+    ),
+  );
+  expect(
+    (
+      await detail(request(undefined, {}, "GET"), {
+        params: { orderId: "other" },
+      })
+    ).status,
+  ).toBe(404);
 });

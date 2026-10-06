@@ -93,23 +93,15 @@ cookie and validates account identity. Submitted lines still take precedence.
 Checkout's public-product queries, independent inventory checks, pricing, dropped
 line reporting and readiness checks are unchanged. Checkout is not migrated.
 
-## Only intentional Web Cart persistence exception
+## Checkout/Orders follow-up cutover
 
-Both remaining executable accesses are in `src/app/api/orders/route.ts`:
-
-1. `prisma.cart.findUnique`: owner-scoped account-cart read and submitted-line comparison.
-2. `tx.cartItem.deleteMany`: CartItem consumption inside the existing order-creation
-   transaction alongside inventory updates.
-
-These are temporary exceptions until Orders moves to Backend. Neither was changed.
-Receipts are not removed by consumption, so retries cannot resurrect consumed items.
-No HTTP clear endpoint or nontransactional order-time clearing was introduced.
-Existing races between order creation and concurrent cart editing remain an Orders
-integration concern; Cart API serialization does not claim to migrate that workflow.
-
-Orders, Checkout authority, Payments/PayPal and Wishlist remain in Web. Prisma remains
-installed and the Web generated client is unchanged. Auth/Profile/Addresses ownership
-and their private HTTP contracts remain unchanged.
+The former two Web Prisma exceptions in `src/app/api/orders/route.ts` are now removed:
+account Cart read and transactional CartItem consumption both belong to Backend Orders.
+The Serializable Order transaction compares the complete submitted Cart intent and deletes
+only those validated rows, updates Cart.updatedAt, and retains CartMutationReceipt.
+Checkout preview is also Backend-owned; see [the cutover contract](checkout-orders-backend-cutover.md).
+Payments/PayPal remain the explicit temporary Web persistence exception. The earlier sections
+record the original Cart milestone; their “Checkout not migrated” statements describe that stage.
 
 ## Changed files
 

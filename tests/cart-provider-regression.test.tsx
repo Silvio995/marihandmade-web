@@ -1,3 +1,4 @@
+import { checkoutPreview } from "./checkout-orders.fixture";
 // Wishlist integration is covered separately; keep these Catalog/Cart assertions isolated.
 vi.mock("@/components/native/WishlistButton", () => ({ default: () => null }));
 import { wireProduct, wireCart } from "./cart.fixture";
@@ -146,12 +147,68 @@ beforeEach(() => {
     items,
   }));
   fetchMock.mockImplementation(async (url, init) => {
+    if (url instanceof URL && url.pathname === "/api/checkout") {
+      // Synthetic Backend HTTP preview; authoritative eligibility is covered by
+      // Backend API/PostgreSQL tests, not Web Prisma.
+      const lines = init?.body
+        ? JSON.parse(init.body).checkoutLines
+        : items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId ?? null,
+            quantity: item.count,
+          }));
+      const prepared = lines.flatMap((line: any) => {
+        const variant = catalogProduct.variants.find(
+          (v: any) => v.id === line.variantId,
+        );
+        const inv = variant?.inventory;
+        const eligible =
+          catalogProduct.isAvailable &&
+          (line.variantId
+            ? variant?.active &&
+              inv &&
+              (inv.trackQuantity === false ||
+                inv.allowBackorder ||
+                inv.quantityOnHand - inv.quantityReserved >= line.quantity)
+            : catalogProduct.stock >= line.quantity);
+        return eligible
+          ? [
+              {
+                ...checkoutPreview.lines[0],
+                ...line,
+                unitPrice: (variant?.price ?? catalogProduct.price).toFixed(2),
+                subtotal: (
+                  (variant?.price ?? catalogProduct.price) * line.quantity
+                ).toFixed(2),
+              },
+            ]
+          : [];
+      });
+      return Response.json({
+        ...checkoutPreview,
+        lines: prepared,
+        isCheckoutReady: prepared.length === lines.length && lines.length > 0,
+        issues:
+          prepared.length === lines.length
+            ? []
+            : [
+                {
+                  productId: "p",
+                  variantId: selectedVariantId,
+                  code: "CART_QUANTITY_UNAVAILABLE",
+                },
+              ],
+      });
+    }
     // Backend persistence is a synthetic HTTP fixture; Web never uses its Cart delegates.
     if (url instanceof URL && url.pathname === "/api/cart")
       return Response.json(wireCart("user-a", items));
     if (url === "/api/checkout") {
       const response = await prepareCheckout(
-        new Request("http://store.test/api/checkout", init),
+        new Request("http://store.test/api/checkout", {
+          ...init,
+          headers: { ...init.headers, Origin: "http://store.test" },
+        }),
       );
       preparation = await response.clone().json();
       return response;
@@ -428,15 +485,14 @@ it.each([false, true])(
       await readCheckout(new Request("http://store.test/api/checkout"))
     ).json();
     expect(persistedResult).toMatchObject({
-      itemCount: 1,
       isCheckoutReady: true,
-      droppedReasons: [],
+      issues: [],
       lines: [
         {
           productId: "p",
           variantId: selectedVariantId,
           quantity: 1,
-          unitPrice: hasVariant ? 25 : 10,
+          unitPrice: hasVariant ? "25.00" : "10.00",
         },
       ],
     });
@@ -455,7 +511,13 @@ it.each([false, true])(
     )!;
     expect(JSON.parse(orderCall[1].body)).toMatchObject({
       addressId: "address-a",
-      checkoutLines: persistedResult.lines,
+      checkoutLines: persistedResult.lines.map(
+        ({ productId, variantId, quantity }: any) => ({
+          productId,
+          variantId,
+          quantity,
+        }),
+      ),
     });
     expect(alert).not.toHaveBeenCalledWith(
       "Cart is empty or invalid for checkout",
@@ -488,7 +550,7 @@ it.each([
     }
     await addAndOpenCheckout();
     if (reason === "invalid_or_unpublished_product")
-      db.product.findMany.mockResolvedValue([]);
+      catalogProduct.isAvailable = false;
     if (reason === "inactive_or_mismatched_variant")
       catalogProduct.variants[0].active = false;
     if (reason === "insufficient_variant_inventory")
@@ -496,15 +558,11 @@ it.each([
     if (reason === "insufficient_legacy_stock") catalogProduct.stock = 0;
     fireEvent.click(screen.getByRole("button", { name: "Completa ordine" }));
     await waitFor(() =>
-      expect(alert).toHaveBeenCalledWith(
-        "Cart is empty or invalid for checkout",
-      ),
+      expect(alert).toHaveBeenCalledWith("Cart needs review before checkout"),
     );
     expect(preparation).toMatchObject({
       lines: [],
-      itemCount: 0,
-      droppedLineCount: 1,
-      droppedReasons: [reason],
+      issues: [{ code: "CART_QUANTITY_UNAVAILABLE" }],
     });
     expect(items).toHaveLength(1);
     expect(
@@ -550,14 +608,18 @@ it("actual product detail disables an active fully reserved variant; Checkout al
   const response = await prepareCheckout(
     new Request("http://store.test/api/checkout", {
       method: "POST",
+      headers: {
+        Origin: "http://store.test",
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        lines: [{ productId: "p", variantId: "v", quantity: 1 }],
+        checkoutLines: [{ productId: "p", variantId: "v", quantity: 1 }],
       }),
     }),
   );
   expect(await response.json()).toMatchObject({
     lines: [],
-    droppedReasons: ["insufficient_variant_inventory"],
+    issues: [{ code: "CART_QUANTITY_UNAVAILABLE" }],
   });
 });
 
@@ -568,18 +630,21 @@ it.each([1, 2, 3])(
     const response = await prepareCheckout(
       new Request("http://store.test/api/checkout", {
         method: "POST",
+        headers: {
+          Origin: "http://store.test",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          lines: [{ productId: "p", variantId: "v", quantity }],
+          checkoutLines: [{ productId: "p", variantId: "v", quantity }],
         }),
       }),
     );
     expect(await response.json()).toMatchObject(
       quantity <= 2
-        ? { itemCount: quantity, isCheckoutReady: true, droppedReasons: [] }
+        ? { isCheckoutReady: true, issues: [] }
         : {
-            itemCount: 0,
             isCheckoutReady: false,
-            droppedReasons: ["insufficient_variant_inventory"],
+            issues: [{ code: "CART_QUANTITY_UNAVAILABLE" }],
           },
     );
   },
@@ -605,7 +670,7 @@ it("actual detail blocks a second unit when only one is available", async () => 
   const result = await (
     await readCheckout(new Request("http://store.test/api/checkout"))
   ).json();
-  expect(result).toMatchObject({ itemCount: 1, droppedReasons: [] });
+  expect(result).toMatchObject({ isCheckoutReady: true, issues: [] });
 });
 
 // Former Web persistence assertions are covered by Backend cart.test.ts and
