@@ -19,7 +19,7 @@ import { HeroCarousel } from "@/components/storefront/HeroCarousel";
 import Header from "@/components/native/nav/parent";
 import NewsletterSection from "@/components/native/NewsletterSection";
 vi.mock("@/state/Cart", () => ({
-  useCartContext: () => ({ cart: { items: [{ count: 2 }] } }),
+  useCartContext: () => ({ cart: { items: [{ count: 2 }, { count: 3 }] } }),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/categories/borse" }));
 const { api } = vi.hoisted(() => ({
@@ -40,29 +40,35 @@ afterEach(() => {
 describe("storefront presentation", () => {
   it("renders account actions, search, active backend category and keyboard-operable mobile menu", () => {
     render(<Header categories={[category]} />);
+    expect(screen.queryByRole("search")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "Apri menu" });
+    fireEvent.click(trigger);
     expect(screen.getByRole("search")).toHaveAttribute("action", "/products");
     expect(screen.getByRole("searchbox")).toHaveAttribute("name", "q");
     for (const label of ["Account", "Wishlist", "Carrello"])
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Borse" })[0]).toHaveAttribute(
       "aria-current",
       "page",
     );
-    const trigger = screen.getByRole("button", { name: "Apri menu" });
-    fireEvent.click(trigger);
     expect(
-      screen.getByRole("navigation", { name: "Categorie mobile" }),
+      screen.getByRole("navigation", { name: "Navigazione mobile" }),
     ).toBeVisible();
     fireEvent.keyDown(trigger, { key: "Escape" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
+    expect(screen.queryByRole("search")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Borse" }),
+    ).not.toBeInTheDocument();
   });
   it("renders category tiles from DTOs without inventing categories", () => {
     render(<CategoryTiles categories={[category]} />);
-    expect(
-      screen.getByRole("link", { name: /Scopri le borse/ }),
-    ).toHaveAttribute("href", "/categories/borse");
+    expect(screen.getByRole("link", { name: "Scopri Borse" })).toHaveAttribute(
+      "href",
+      "/categories/borse",
+    );
     expect(screen.queryByText("Filati")).not.toBeInTheDocument();
     expect(screen.queryByText("Bambole")).not.toBeInTheDocument();
   });

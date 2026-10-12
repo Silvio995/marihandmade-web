@@ -1,6 +1,6 @@
-vi.mock('@/components/native/nav/user', () => ({ UserNav: () => null }))
+vi.mock("@/components/native/nav/user", () => ({ UserNav: () => null }));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { productDto } from "@/lib/api/contracts";
 import { getPrimaryImageUrl, getVariantMinPrice } from "@/lib/product-display";
 import { getProductDisplayAvailability } from "@/lib/inventory-availability";
@@ -88,15 +88,15 @@ describe("HTTP catalog boundary", () => {
   });
   it("builds category navigation only from supplied DTOs", () => {
     render(<Header categories={[category]} />);
+    const trigger = screen.getByRole("button", { name: "Apri menu" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
     expect(screen.getAllByRole("link", { name: "Borse" })[0]).toHaveAttribute(
       "href",
       "/categories/borse",
     );
     expect(screen.queryByText("Costumi")).not.toBeInTheDocument();
     expect(screen.queryByText("Filati")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apri menu" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
   });
 });

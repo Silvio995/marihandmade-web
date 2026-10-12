@@ -26,7 +26,7 @@ export function UserNav() {
         type="button"
         disabled={busy}
         onClick={onLogout}
-        className="text-sm underline"
+        className="inline-flex min-h-11 items-center text-sm underline disabled:opacity-60"
       >
         {busy ? "Logging out…" : "Logout"}
       </button>

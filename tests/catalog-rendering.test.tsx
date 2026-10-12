@@ -24,8 +24,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/prisma", () => {
   throw new Error("Catalog must not import Prisma");
 });
-vi.mock("@/components/storefront/HeroCarousel", () => ({
-  HeroCarousel: () => <div>Campagna</div>,
+vi.mock("@/components/native/HomeMediaCarousel", () => ({
+  HomeMediaCarousel: () => <div>Fotografie editoriali</div>,
 }));
 vi.mock(
   "@/app/(store)/(routes)/products/[productId]/components/cart_button",
@@ -229,31 +229,26 @@ describe("server catalog routes over mocked HTTP", () => {
       variants: [],
       stock: 0,
     });
-    response([category]);
-    response([
-      featured,
-      dto({ id: "p2", title: "Non featured", isFeatured: false }),
-    ]);
-    render(await HomePage());
-    expect(
-      screen.getByRole("heading", { name: "Featured DTO" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("heading", { name: "Non featured" }),
-    ).not.toBeInTheDocument();
     response([featured]);
     expect(await getFeaturedProducts()).toEqual([featured]);
   });
-  it("renders a real empty featured state", async () => {
-    response([category]);
-    response([dto({ isFeatured: false })]);
+  it("renders empty Backend collections without fetching homepage products", async () => {
+    response([]);
     render(await HomePage());
-    expect(screen.getByText(/Nessun prodotto in evidenza/)).toBeInTheDocument();
+    expect(screen.getByText(/Le nuove collezioni/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0].pathname).toBe("/api/categories");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Marì Atelier",
+    );
+    expect(
+      screen.getByRole("link", { name: "Inizia la tua creazione" }),
+    ).toHaveAttribute("href", "/products");
   });
   it("shows homepage unavailable states without fake fallback data", async () => {
     fetchMock.mockRejectedValue(new Error("private connection detail"));
     render(await HomePage());
-    expect(screen.getAllByRole("status")).toHaveLength(2);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
     expect(
       screen.queryByRole("heading", { name: "Borsa" }),
     ).not.toBeInTheDocument();
