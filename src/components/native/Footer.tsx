@@ -1,94 +1,107 @@
 import { homepageEditorialFooter } from "@/data/homepage-editorial";
 import type { CategoryDto } from "@/lib/api/contracts";
-import { Container } from "@/components/storefront/layout";
-import Image from "next/image";
 import Link from "next/link";
+import { Facebook, Instagram, MessageCircle, Music2 } from "lucide-react";
+const socialIcons = {
+  Instagram,
+  Facebook,
+  WhatsApp: MessageCircle,
+  TikTok: Music2,
+};
 export default function Footer({
   categories = [],
 }: {
   categories?: CategoryDto[];
 }) {
-  const groups = [
-    {
-      title: "Shop",
-      links: categories.map((c) => ({
-        label: c.title,
-        href: `/categories/${encodeURIComponent(c.slug)}`,
-      })),
-    },
-    {
-      title: "Assistenza",
-      links: [
-        { label: "Aiuto e contatti", href: "/contact" },
-
-        { label: "Il mio account", href: "/profile/edit" },
-      ],
-    },
-    {
-      title: "Il mondo Marì",
-      links: [
-        { label: "La nostra storia", href: "/about-us" },
-        { label: "Blog", href: "/blog" },
-        { label: "Contatti", href: "/contact" },
-      ],
-    },
-    { title: "Informazioni", links: homepageEditorialFooter.legal },
+  const content = homepageEditorialFooter;
+  const navigation = [
+    { label: "Catalogo", href: "/products" },
+    { label: "Atelier", href: "/about-us" },
+    { label: "Contatti", href: "/contact" },
+    { label: "Il mio account", href: "/profile/edit" },
+    ...categories.map((category) => ({
+      label: category.title,
+      href: `/categories/${encodeURIComponent(category.slug)}`,
+    })),
   ];
   return (
-    <footer className="border-t border-shop-line bg-shop-paper text-shop-ink">
-      <Container className="py-12 sm:py-16">
-        <div className="grid gap-10 lg:grid-cols-[1.2fr_3fr]">
-          <div>
-            <Link href="/" aria-label="MariHandmade — Home">
-              <Image
-                src="/brand/logo.svg"
-                alt="MariHandmade"
-                width={145}
-                height={65}
-                className="mb-5 h-16 w-36 object-contain"
-              />
+    <footer className="atelier-footer">
+      <div className="atelier-footer-inner">
+        <div className="atelier-footer-grid">
+          <div className="space-y-4">
+            <Link
+              href="/"
+              className="atelier-footer-label inline-flex min-h-11 items-center"
+            >
+              {content.brand.label}
             </Link>
-            <p className="max-w-xs text-sm leading-7 text-shop-muted">
-              Un atelier indipendente. Creazioni crochet, idee personali e il
-              piacere del fatto a mano.
+            <p className="max-w-md text-sm leading-relaxed text-[#4f4035]">
+              {content.brand.description}
             </p>
-            <div className="mt-5 flex flex-wrap gap-x-4 gap-y-3">
-              {homepageEditorialFooter.social.map((link) => (
+          </div>
+          <nav aria-label="Navigazione footer" className="space-y-4">
+            <h2 className="atelier-footer-label">
+              {content.labels.navigation}
+            </h2>
+            <ul className="space-y-2 text-sm">
+              {navigation.map((item) => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="underline-offset-4 hover:underline"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="space-y-4">
+            <h2 className="atelier-footer-label">{content.labels.social}</h2>
+            <div className="flex flex-wrap gap-3">
+              {content.social.map((item) => {
+                const Icon =
+                  socialIcons[item.label as keyof typeof socialIcons];
+                if (!Icon) return null;
+                const external = item.href.startsWith("https://");
+                return (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    target={external ? "_blank" : undefined}
+                    rel={external ? "noopener noreferrer" : undefined}
+                    aria-label={
+                      external
+                        ? `${item.label} (si apre in una nuova scheda)`
+                        : "WhatsApp — Contatti"
+                    }
+                    className="atelier-social"
+                  >
+                    <Icon size={16} aria-hidden="true" />
+                  </Link>
+                );
+              })}
+            </div>
+            <nav
+              aria-label="Informazioni legali"
+              className="flex flex-wrap gap-4 text-xs uppercase tracking-[0.2em] text-[#6f5c4d]"
+            >
+              {content.legal.map((item) => (
                 <Link
-                  key={link.label}
-                  href={link.href}
-                  className="text-xs underline underline-offset-4"
+                  key={item.href}
+                  href={item.href}
+                  className="inline-flex min-h-11 items-center hover:underline"
                 >
-                  {link.label}
+                  {item.label}
                 </Link>
               ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
-            {groups.map((group) => (
-              <nav key={group.title} aria-label={group.title}>
-                <h2 className="mb-5 text-sm font-semibold">{group.title}</h2>
-                <ul className="space-y-3">
-                  {group.links.map((link) => (
-                    <li key={link.href}>
-                      <Link
-                        href={link.href}
-                        className="text-sm leading-6 text-shop-muted underline-offset-4 hover:underline"
-                      >
-                        {link.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
-            ))}
+            </nav>
           </div>
         </div>
-        <div className="mt-12 flex flex-wrap justify-between gap-3 border-t border-shop-line pt-6 text-xs text-shop-muted">
-          <p>© {new Date().getFullYear()} MariHandmade</p>
-          <p>Creazioni da scegliere, regalare e custodire.</p>
-        </div>
-      </Container>
+        <p className="atelier-copyright">
+          © {new Date().getFullYear()} {content.brand.label}
+        </p>
+      </div>
     </footer>
   );
 }

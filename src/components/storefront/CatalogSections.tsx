@@ -3,12 +3,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import type { CategoryDto, ProductDto } from "@/lib/api/contracts";
+import { featuredEditorial, campaignCategoryHref } from "@/data/storefront";
 import {
-  categoryVisuals,
-  categoryCampaignKey,
-  featuredEditorial,
-  campaignCategoryHref,
-} from "@/data/storefront";
+  collectionEditorialImages,
+  homepageEditorialContent,
+} from "@/data/homepage-editorial";
 import { getSafeImageSrc } from "@/lib/safe-image";
 import {
   getPrimaryImageUrl,
@@ -25,63 +24,60 @@ export function CategoryTiles({
 }: {
   categories: CategoryDto[] | null;
 }) {
+  const { collections } = homepageEditorialContent;
   return (
-    <section className="shop-categories" aria-label="Le collezioni">
-      <MotionReveal>
-        <SectionHeading
-          eyebrow="Scegli la tua ispirazione"
-          title="Un mondo di intrecci"
-        />
-      </MotionReveal>
-      {categories === null ? (
-        <p role="status">Collezioni temporaneamente non disponibili.</p>
-      ) : categories.length === 0 ? (
-        <p>Le nuove collezioni saranno disponibili qui.</p>
-      ) : (
-        <MotionReveal stagger className="shop-category-grid">
-          {categories.map((category) => {
-            const visual = categoryVisuals[categoryCampaignKey(category)];
-            return (
-              <Link
-                key={category.id}
-                href={`/categories/${encodeURIComponent(category.slug)}`}
-                className="shop-category group"
-              >
-                <div className="shop-category-image">
+    <section
+      id="collezioni"
+      className="atelier-collections"
+      aria-labelledby="collections-title"
+    >
+      <div className="atelier-collections-inner">
+        <div className="space-y-4">
+          <p className="atelier-eyebrow">{collections.eyebrow}</p>
+          <h2 id="collections-title" className="atelier-heading">
+            {collections.title}
+          </h2>
+          <p className="max-w-3xl text-base text-[#4f4035]">
+            {collections.subtitle}
+          </p>
+        </div>
+        {categories === null ? (
+          <p role="status">Collezioni temporaneamente non disponibili.</p>
+        ) : categories.length === 0 ? (
+          <p>Le nuove collezioni saranno disponibili qui.</p>
+        ) : (
+          <div className="atelier-collection-grid">
+            {categories.map((category) => {
+              const visual =
+                collectionEditorialImages[category.slug] ??
+                collectionEditorialImages[
+                  category.title.toLocaleLowerCase("it")
+                ];
+              return (
+                <Link
+                  key={category.id}
+                  href={`/categories/${encodeURIComponent(category.slug)}`}
+                  aria-label={`Scopri ${category.title}`}
+                  className="atelier-collection"
+                >
                   <Image
                     src={getSafeImageSrc(
                       visual?.image ?? category.banners[0]?.image,
                       "/brand/logo.jpeg",
                     )}
                     alt={visual?.alt ?? category.title}
-                    style={{
-                      objectPosition: visual?.objectPosition ?? "center",
-                    }}
                     fill
-                    unoptimized={visual?.unoptimized}
-                    sizes="(min-width: 1280px) 570px, (min-width: 768px) 50vw, 100vw"
-                    className="object-cover"
+                    sizes="(min-width: 1280px) 379px, (min-width: 768px) 46vw, 100vw"
+                    className="object-cover object-center"
                   />
-                </div>
-                <div className="shop-category-copy">
-                  <h3 className="font-serif text-4xl sm:text-5xl">
-                    {category.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-6 text-shop-muted">
-                    {visual?.copy ??
-                      category.description ??
-                      "Scopri le creazioni della collezione."}
-                  </p>
-                  <span className="shop-text-link mt-5">
-                    {visual?.cta ?? `Scopri ${category.title}`}
-                    <ArrowRight size={16} />
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </MotionReveal>
-      )}
+                  <div className="atelier-collection-shade" />
+                  <h3 className="atelier-collection-title">{category.title}</h3>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
