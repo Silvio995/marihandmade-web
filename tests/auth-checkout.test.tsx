@@ -108,6 +108,7 @@ it("preserves guest order fields and passes independent capability to PayPal", a
   );
   expect(order.userId).toBeUndefined();
   expect(fetchMock.mock.calls[2][1].headers).toEqual({
+    "Content-Type": "application/json",
     "x-guest-order-access": "signed-capability",
   });
   expect(await screen.findByText("Riprova PayPal")).toBeVisible();

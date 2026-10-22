@@ -1,0 +1,9 @@
+# Payments Backend cutover
+
+Web payment routes forward strict JSON, actual Origin, session cookies and optional transient guest capability to Backend. Capture correlation uses the JSON body, never query-selected provider authority. Status and confirmation read committed Backend state; return retries the same capture operation; cancellation shows unpaid/resume unless Backend confirms payment. Checkout order UUID/recovery and account/guest cart transitions remain unchanged.
+
+The temporary `/api/paypal/webhook` relay forwards untouched JSON text and the five signature headers to Backend, without customer credentials or local verification. Remove it only after later authorized delivery routing changes. The unused `/api/orders/:id/pay` endpoint and legacy provider/persistence helpers were removed. Unrelated residual Web Prisma consumers remain outside this task.
+
+Move PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_API_BASE_URL, PAYPAL_MERCHANT_ID, PAYPAL_RETURN_BASE_URL and PAYPAL_WEBHOOK_ID to Backend configuration. PAYPAL_CURRENCY_CODE is no longer Web-owned; Backend v1 is EUR only. GUEST_ORDER_TOKEN_SECRET is Backend-only after cutover. No browser PayPal client ID is needed for this redirect UI. Web retains MARIHANDMADE_API_URL, public storefront URLs, and unrelated DB/email configuration. No real .env or remote setting was changed.
+
+Backend `docs/payments-api.md` documents the shared API, durable recovery, one-hour create replay bound, conservative capture-intent review behavior and rollout gates. Release requires historical data preflight, a legacy in-flight payment plan, coordinated single-writer/webhook transition, merchant/retention sandbox validation and assigned recovery/review ownership. Local tests use synthetic responses and blocked external networking; no real provider request is authorized here.
