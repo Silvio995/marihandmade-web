@@ -1,5 +1,6 @@
 "use client";
 
+import { startPayPalPayment } from "@/lib/client-payments";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -112,33 +113,6 @@ export default function CheckoutPage() {
       cancelled = true;
     };
   }, [authenticated, accountId, addressRetry]);
-
-  async function startPayPalPayment(
-    orderId: string,
-    guestOrderAccessToken?: string,
-  ) {
-    const payRes = await fetch(`/api/orders/${orderId}/pay/paypal`, {
-      method: "POST",
-      credentials: "include",
-      headers: guestOrderAccessToken
-        ? {
-            "x-guest-order-access": guestOrderAccessToken,
-          }
-        : undefined,
-    });
-
-    if (!payRes.ok) {
-      const text = await payRes.text().catch(() => "");
-      throw new Error(text || "Impossibile avviare PayPal");
-    }
-
-    const payData: { providerApproveUrl?: string | null } = await payRes.json();
-    if (!payData.providerApproveUrl) {
-      throw new Error("PayPal approval URL mancante");
-    }
-
-    window.location.href = payData.providerApproveUrl;
-  }
 
   async function handleCheckout() {
     if (

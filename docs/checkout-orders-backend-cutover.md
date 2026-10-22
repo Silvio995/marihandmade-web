@@ -30,26 +30,17 @@ Authenticated confirmed creation/replay refreshes Backend Cart. Guest cleanup is
 
 ## Guest and side effects
 
-Backend genuine auth absence permits guest; malformed/expired/disabled customer cookies and auth infrastructure errors do not downgrade. Guest scope is signed random UUIDv4, HttpOnly, SameSite=Lax, Path=/, Secure in production, 30-day fixed lifetime. Scope has a distinct signing purpose from payment capability, requires existing-compatible GUEST_ORDER_TOKEN_SECRET, and expired/lost scope fails closed rather than creating a fresh scope for a pending Order. No Guest/User/Address records are invented. Guest Order userId/addressId/shipping snapshot remain null. Guest history/list-by-email is not introduced; static confirmation and existing payment capability remain compatible.
+Backend genuine auth absence permits guest; malformed/expired/disabled customer cookies and auth infrastructure errors do not downgrade. Guest scope is signed random UUIDv4, HttpOnly, SameSite=Lax, Path=/, Secure in production, 30-day fixed lifetime. Scope has a distinct signing purpose from payment capability, requires existing-compatible GUEST_ORDER_TOKEN_SECRET, and expired/lost scope fails closed rather than creating a fresh scope for a pending Order. No Guest/User/Address records are invented. Guest Order userId/addressId/shipping snapshot remain null. Guest history/list-by-email is not introduced; payment status uses the existing order-specific capability.
 
-Backend checks signing readiness before guest commit and reissues the existing two-hour `{orderId,guestEmail,iat,exp}` HMAC payment capability only for a verified same-scope replay. No PayPal behavior/configuration/provider call is part of this cutover.
+Backend checks signing readiness before guest commit and reissues the existing two-hour `{orderId,guestEmail,iat,exp}` HMAC payment capability only for a verified same-scope replay. The subsequent Payments cutover moves verification of this capability to Backend.
 
 Backend Order-created emails use a post-commit adapter with injectable transport, best-effort owner/customer delivery, bounded provider timeout and no replay send. Runtime delivery requires explicit existing `EMAIL_SEND_MODE=resend` plus valid sender/key; none was configured here. Default adapter performs no provider call. No Owner.id → Notification.userId write remains, no outbox/retry worker is introduced, and process crash/provider failure can lose email without affecting the committed Order.
 
-## Exact remaining Web Prisma exceptions
+## Payment ownership after the local PayPal cutover
 
-| Source | Retained persistence |
-| --- | --- |
-| `src/app/api/orders/[orderId]/pay/route.ts` | Order.findUnique and narrow payment-context item/product/variant/payment includes |
-| `src/app/api/orders/[orderId]/pay/paypal/route.ts` | Order.findUnique for existing provider handoff |
-| `src/app/api/orders/[orderId]/pay/paypal/capture/route.ts` | Order.findUnique; User.findUnique email; payment reconciliation invocation |
-| `src/app/api/orders/[orderId]/pay/paypal/sync/route.ts` | Order.findUnique and reconciliation invocation |
-| `src/app/api/paypal/webhook/route.ts` | Payment.findUnique; fallback Order.findUnique; reconciliation |
-| `src/lib/paypal.ts::reconcilePayPalPayment` | PaymentProvider.upsert, Payment.upsert or existing guest raw INSERT, Order.update only isPaid/status, in transaction |
+Payment create/status/capture/sync now use thin Backend forwarding. The temporary webhook bridge relays raw JSON and signature headers to Backend. No payment route reads Prisma, validates guest HMAC, calls PayPal REST, sends payment emails, or reconciles financial state in Web. The unused `/pay` context endpoint and legacy provider/persistence helper are removed. Confirmation now reads authoritative Backend payment status, including cancellation and recovery.
 
-These files were not modified. The known guest Payment raw SQL omission of canonical id/updatedAt and payment currency/provider idempotency inconsistencies remain later Payments work. Payment success does not decrement stock. Unrelated review/content/subscription/transitional account persistence and frozen generated Web Prisma infrastructure remain outside this milestone.
-
-**Removed:** all Web Prisma product/inventory checkout reads; Order create/list/detail; account Cart read/consumption; order-time coupon/stock writes; Order-created Owner/Notification/email orchestration; profile history/detail Prisma reads. No active direct Web OrderItem/Inventory/StockMovement/CartItem commerce delegate remains outside the payment allowlist. `tests/orders-source-guard.test.ts` enforces the migrated boundary and no payment stock/Cart writes.
+The Orders source guard has no payment exceptions. Checkout still creates orders and consumes guest cart intent at the original commit boundary; payment pages do not consume cart or stock. Unrelated review/content/subscription/transitional account persistence and frozen generated Web Prisma infrastructure remain outside this milestone. See `payments-backend-cutover.md` for configuration and rollout gates.
 
 ## Validation and release gates
 

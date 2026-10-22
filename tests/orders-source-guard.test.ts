@@ -2,14 +2,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { it, expect } from "vitest";
-const allowed = new Set([
-  "src/app/api/orders/[orderId]/pay/route.ts",
-  "src/app/api/orders/[orderId]/pay/paypal/route.ts",
-  "src/app/api/orders/[orderId]/pay/paypal/capture/route.ts",
-  "src/app/api/orders/[orderId]/pay/paypal/sync/route.ts",
-  "src/app/api/paypal/webhook/route.ts",
-  "src/lib/paypal.ts",
-]);
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.name === "generated"
@@ -21,13 +13,13 @@ function files(dir: string): string[] {
           : [],
   );
 }
-it("Web Order delegates exist only in documented payment exceptions", () => {
+it("Web has no active payment/order persistence delegates", () => {
   const actual = files("src").filter((file) =>
-    /\b(?:prisma|tx)\.(?:order|orderItem|inventoryItem|stockMovement|cartItem)\s*\./.test(
+    /\b(?:prisma|tx)\.(?:payment|paymentProvider|order|orderItem|inventoryItem|stockMovement|cartItem)\s*\./.test(
       readFileSync(file, "utf8"),
     ),
   );
-  expect(actual.filter((file) => !allowed.has(file))).toEqual([]);
+  expect(actual).toEqual([]);
 });
 it("migrated checkout/history/detail modules have no Prisma imports", () => {
   for (const file of [
@@ -43,38 +35,15 @@ it("migrated checkout/history/detail modules have no Prisma imports", () => {
     );
   }
 });
-it("retained payment exceptions never consume stock or Cart", () => {
-  for (const file of allowed)
+it("payment modules contain no provider, DB or guest signing ownership", () => {
+  const paths = files("src").filter((file) =>
+    /pay(?:ment|pal)|orders.*pay/.test(file),
+  );
+  for (const file of paths)
     expect(readFileSync(file, "utf8")).not.toMatch(
-      /\.(?:inventoryItem|stockMovement|cartItem)\s*\.|quantityOnHand|quantityReserved|stock:\s*\{/,
+      /lib\/prisma|generated\/client|PAYPAL_CLIENT_SECRET|client_credentials|api-m\.paypal|api-m\.sandbox|reconcilePayPalPayment|createHmac|GUEST_ORDER_TOKEN_SECRET/,
     );
-});
-
-it("payment allowlist cannot broaden into Order creation or other Order writes", () => {
-  for (const file of allowed) {
-    const text = readFileSync(file, "utf8");
-    const methods = [
-      ...text.matchAll(/\b(?:prisma|tx)\.order\.(\w+)\s*\(/g),
-    ].map((match) => match[1]);
-    expect(
-      methods.every(
-        (method) =>
-          method === (file === "src/lib/paypal.ts" ? "update" : "findUnique"),
-      ),
-    ).toBe(true);
-    expect(text).not.toMatch(
-      /(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"(?:Order|OrderItem|InventoryItem|StockMovement|CartItem)"/i,
-    );
-    if (file === "src/lib/paypal.ts") {
-      const update = [
-        ...text.matchAll(/tx\.order\.update\([\s\S]*?data:\s*\{([\s\S]*?)\}/g),
-      ];
-      expect(update).toHaveLength(1);
-      expect(
-        [...update[0][1].matchAll(/\b(\w+)\s*:/g)]
-          .map((match) => match[1])
-          .sort(),
-      ).toEqual(["isPaid", "status"]);
-    }
-  }
+  expect(readFileSync("src/lib/auth.ts", "utf8")).not.toMatch(
+    /createHmac|GUEST_ORDER_TOKEN_SECRET|GuestOrderAccess/,
+  );
 });
